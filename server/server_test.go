@@ -1,7 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,212 +14,340 @@ import (
 	"testing"
 	"time"
 
-	"pdf-plitter/storage"
+	"pdf-splitter/storage"
 )
 
-func TestHandleConfig(t *testing.T) {
-	activeConfig = ServerConfig{
-		Retention:  15 * time.Minute,
-		Standalone: true,
+func buildMinimalPDFBytes(pages int) []byte {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := make([]int, 0, pages+2)
+
+	offsets = append(offsets, buf.Len())
+	buf.WriteString("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+
+	var kids strings.Builder
+	for i := 0; i < pages; i++ {
+		if i > 0 {
+			kids.WriteByte(' ')
+		}
+		fmt.Fprintf(&kids, "%d 0 R", i+3)
+	}
+	offsets = append(offsets, buf.Len())
+	fmt.Fprintf(&buf, "2 0 obj\n<< /Type /Pages /Kids [%s] /Count %d >>\nendobj\n", kids.String(), pages)
+
+	for i := 0; i < pages; i++ {
+		offsets = append(offsets, buf.Len())
+		fmt.Fprintf(&buf, "%d 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>\nendobj\n", i+3)
 	}
 
-	// 1. Without S3 configured
-	storage.SetDefaultClient(storage.NewClient(storage.Config{}))
+	xrefOffset := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 %d\n", len(offsets)+1)
+	buf.WriteString("0000000000 65535 f \n")
+	for _, off := range offsets {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", off)
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(offsets)+1, xrefOffset)
+	return buf.Bytes()
+}
+
+func newTestServer(t *testing.T, standalone bool, store *storage.Client) *Server {
+	t.Helper()
+	if store == nil {
+		store = storage.NewClient(storage.Config{})
+	}
+	s, err := NewServer(ServerConfig{
+		SessionsDir:    t.TempDir(),
+		Retention:      15 * time.Minute,
+		MaxUploadBytes: 10 << 20,
+		Standalone:     standalone,
+		Headless:       true,
+	}, store)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	return s
+}
+
+func TestHandleConfigDoesNotLeakS3Bucket(t *testing.T) {
+	store := storage.NewClient(storage.Config{
+		Bucket:          "secret-internal-bucket",
+		Region:          "eu-central-1",
+		AccessKeyID:     "test-key",
+		SecretAccessKey: "test-secret",
+	})
+	s := newTestServer(t, false, store)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	rec := httptest.NewRecorder()
-	handleConfig(rec, req)
+	s.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", rec.Code)
+		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode json: %v", err)
+		t.Fatalf("decode json: %v", err)
 	}
-
-	if resp["s3_enabled"] != false {
-		t.Errorf("expected s3_enabled to be false, got %v", resp["s3_enabled"])
+	if resp["s3_enabled"] != true {
+		t.Errorf("expected s3_enabled=true, got %v", resp["s3_enabled"])
 	}
-	if resp["standalone"] != true {
-		t.Errorf("expected standalone to be true, got %v", resp["standalone"])
+	if _, leaked := resp["s3_bucket"]; leaked {
+		t.Errorf("s3_bucket should not be exposed in /api/config")
 	}
-	if int(resp["retention_minutes"].(float64)) != 15 {
-		t.Errorf("expected retention_minutes to be 15, got %v", resp["retention_minutes"])
-	}
-
-	// 2. With S3 configured
-	storage.SetDefaultClient(storage.NewClient(storage.Config{
-		Bucket:          "test-bucket",
-		Region:          "us-east-1",
-		AccessKeyID:     "test-key",
-		SecretAccessKey: "test-secret",
-	}))
-
-	rec2 := httptest.NewRecorder()
-	handleConfig(rec2, req)
-
-	var resp2 map[string]interface{}
-	_ = json.Unmarshal(rec2.Body.Bytes(), &resp2)
-	if resp2["s3_enabled"] != true {
-		t.Errorf("expected s3_enabled to be true, got %v", resp2["s3_enabled"])
-	}
-	if resp2["s3_bucket"] != "test-bucket" {
-		t.Errorf("expected s3_bucket 'test-bucket', got %v", resp2["s3_bucket"])
+	if _, leaked := resp["s3_region"]; leaked {
+		t.Errorf("s3_region should not be exposed in /api/config")
 	}
 }
 
-func TestHandleS3Presign(t *testing.T) {
-	// S3 configured
-	storage.SetDefaultClient(storage.NewClient(storage.Config{
+func TestHealthzAndSecurityHeaders(t *testing.T) {
+	s := newTestServer(t, false, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /healthz, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") {
+		t.Errorf("expected strict CSP header, got %q", got)
+	}
+	if got := rec.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Errorf("expected X-Frame-Options DENY, got %q", got)
+	}
+}
+
+func TestDesktopEndpointsDisabledInVPSMode(t *testing.T) {
+	s := newTestServer(t, false, nil)
+
+	for _, path := range []string{"/api/open-folder", "/api/shutdown", "/api/heartbeat", "/api/events"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", s.CSRFToken())
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("expected 404 for %s in VPS mode, got %d", path, rec.Code)
+		}
+	}
+}
+
+func TestCSRFProtectionEnforced(t *testing.T) {
+	s := newTestServer(t, false, nil)
+
+	// Missing CSRF token
+	req := httptest.NewRequest(http.MethodPost, "/api/clear", strings.NewReader(`{"session_id":"0123456789abcdef0123456789abcdef"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 without CSRF token, got %d", rec.Code)
+	}
+
+	// Cross-site Sec-Fetch-Site header even with token
+	req2 := httptest.NewRequest(http.MethodPost, "/api/clear", strings.NewReader(`{"session_id":"0123456789abcdef0123456789abcdef"}`))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-CSRF-Token", s.CSRFToken())
+	req2.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec2 := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for cross-site Sec-Fetch-Site, got %d", rec2.Code)
+	}
+}
+
+func TestClearRejectsGETAndPathTraversal(t *testing.T) {
+	s := newTestServer(t, false, nil)
+
+	// GET must be rejected
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/clear?session_id=0123456789abcdef0123456789abcdef&csrf_token="+s.CSRFToken(), nil)
+	recGet := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recGet, reqGet)
+	if recGet.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for GET /api/clear, got %d", recGet.Code)
+	}
+
+	// Traversal attempts in session_id must fail and never touch parent directory
+	sentinel := filepath.Join(filepath.Dir(s.cfg.SessionsDir), "keep_me.txt")
+	if err := os.WriteFile(sentinel, []byte("precious"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, badID := range []string{"..", ".", "../etc", "abc/def", "not-32-hex-chars"} {
+		payload := fmt.Sprintf(`{"session_id":%q}`, badID)
+		req := httptest.NewRequest(http.MethodPost, "/api/clear", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", s.CSRFToken())
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for bad session_id %q, got %d", badID, rec.Code)
+		}
+	}
+
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("sentinel file outside SessionsDir was touched: %v", err)
+	}
+}
+
+func TestS3PresignAndKeyAuthorization(t *testing.T) {
+	store := storage.NewClient(storage.Config{
 		Bucket:          "upload-bucket",
 		Region:          "us-east-1",
 		AccessKeyID:     "key123",
 		SecretAccessKey: "secret123",
 		ForcePathStyle:  true,
 		UseSSL:          true,
-	}))
+	})
+	s := newTestServer(t, false, store)
 
-	payload := `{"filename": "math_primary.pdf", "content_type": "application/pdf"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/s3/presign", strings.NewReader(payload))
+	// 1. Oversized presign request rejected
+	bigPayload := fmt.Sprintf(`{"filename":"huge.pdf","file_size":%d}`, s.cfg.MaxUploadBytes+1)
+	reqBig := httptest.NewRequest(http.MethodPost, "/api/s3/presign", strings.NewReader(bigPayload))
+	reqBig.Header.Set("Content-Type", "application/json")
+	reqBig.Header.Set("X-CSRF-Token", s.CSRFToken())
+	recBig := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recBig, reqBig)
+	if recBig.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized presign, got %d", recBig.Code)
+	}
+
+	// 2. Valid presign returns signed URL binding content-length and content-type
+	validPayload := `{"filename":"math_primary.pdf","file_size":4096}`
+	req := httptest.NewRequest(http.MethodPost, "/api/s3/presign", strings.NewReader(validPayload))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", s.CSRFToken())
 	rec := httptest.NewRecorder()
-
-	handleS3Presign(rec, req)
-
+	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse json response: %v", err)
+		t.Fatal(err)
 	}
-
-	if resp["success"] != true {
-		t.Errorf("expected success true, got %v", resp["success"])
-	}
-	key, _ := resp["key"].(string)
-	if !strings.HasPrefix(key, "sessions/") || !strings.HasSuffix(key, "/math_primary.pdf") {
-		t.Errorf("unexpected key format: %s", key)
+	sid, _ := resp["session_id"].(string)
+	if !isValidSessionID(sid) {
+		t.Fatalf("expected 32-char hex session_id, got %q", sid)
 	}
 	uploadURL, _ := resp["upload_url"].(string)
-	if !strings.Contains(uploadURL, "X-Amz-Signature=") {
-		t.Errorf("presigned upload URL missing signature: %s", uploadURL)
+	if !strings.Contains(uploadURL, "content-length") || !strings.Contains(uploadURL, "content-type") {
+		t.Errorf("expected presigned URL to bind content-length and content-type: %s", uploadURL)
+	}
+
+	// 3. Attempting to inspect a different S3 key with this session_id must be forbidden (403)
+	hijackPayload := fmt.Sprintf(`{"session_id":%q,"s3_key":"sessions/other/input/secret.pdf"}`, sid)
+	reqHijack := httptest.NewRequest(http.MethodPost, "/api/inspect", strings.NewReader(hijackPayload))
+	reqHijack.Header.Set("Content-Type", "application/json")
+	reqHijack.Header.Set("X-CSRF-Token", s.CSRFToken())
+	recHijack := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recHijack, reqHijack)
+	if recHijack.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for unauthorized S3 key hijack, got %d: %s", recHijack.Code, recHijack.Body.String())
 	}
 }
 
-func TestHandleClear(t *testing.T) {
-	tmpDir := t.TempDir()
-	activeConfig = ServerConfig{
-		SessionsDir: tmpDir,
+func TestEndToEndInspectSplitDownloadArabicFilename(t *testing.T) {
+	s := newTestServer(t, false, nil)
+	pdfBytes := buildMinimalPDFBytes(6)
+
+	// 1. Inspect via multipart upload with Arabic filename
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", "كتاب_العلوم.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(fw, bytes.NewReader(pdfBytes)); err != nil {
+		t.Fatal(err)
+	}
+	mw.Close()
+
+	reqInspect := httptest.NewRequest(http.MethodPost, "/api/inspect", &body)
+	reqInspect.Header.Set("Content-Type", mw.FormDataContentType())
+	reqInspect.Header.Set("X-CSRF-Token", s.CSRFToken())
+	recInspect := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recInspect, reqInspect)
+
+	if recInspect.Code != http.StatusOK {
+		t.Fatalf("inspect failed (%d): %s", recInspect.Code, recInspect.Body.String())
 	}
 
-	sessionID := "test_session_12345"
-	sessionPath := filepath.Join(tmpDir, sessionID)
-	_ = os.MkdirAll(filepath.Join(sessionPath, "input"), 0755)
-
-	// Create test dummy file
-	dummyFile := filepath.Join(sessionPath, "input", "dummy.pdf")
-	_ = os.WriteFile(dummyFile, []byte("dummy"), 0644)
-
-	// Invoke /api/clear with JSON body
-	payload := `{"session_id": "test_session_12345"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/clear", strings.NewReader(payload))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	handleClear(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	var inspectResp map[string]any
+	if err := json.Unmarshal(recInspect.Body.Bytes(), &inspectResp); err != nil {
+		t.Fatal(err)
+	}
+	sid, _ := inspectResp["session_id"].(string)
+	if !isValidSessionID(sid) {
+		t.Fatalf("invalid session_id returned: %q", sid)
+	}
+	if _, leaked := inspectResp["path"]; leaked {
+		t.Errorf("BookInfo.Path must not be serialized in /api/inspect response")
 	}
 
-	// Verify local session folder is gone
-	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
-		t.Errorf("expected session directory %s to be deleted", sessionPath)
+	// 2. Split at page 2, 4
+	splitPayload := fmt.Sprintf(`{"session_id":%q,"split_points":"2, 4"}`, sid)
+	reqSplit := httptest.NewRequest(http.MethodPost, "/api/split", strings.NewReader(splitPayload))
+	reqSplit.Header.Set("Content-Type", "application/json")
+	reqSplit.Header.Set("X-CSRF-Token", s.CSRFToken())
+	recSplit := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recSplit, reqSplit)
+
+	if recSplit.Code != http.StatusOK {
+		t.Fatalf("split failed (%d): %s", recSplit.Code, recSplit.Body.String())
 	}
-}
 
-func TestHandleDownloadApp(t *testing.T) {
-	// Test platform=windows
-	reqWin := httptest.NewRequest(http.MethodGet, "/api/download-app?platform=windows", nil)
-	recWin := httptest.NewRecorder()
-	handleDownloadApp(recWin, reqWin)
-
-	// In test environment, pdf-plitter.exe exists in root or returns file
-	if recWin.Code == http.StatusOK {
-		cd := recWin.Header().Get("Content-Disposition")
-		if !strings.Contains(cd, "pdf-plitter.exe") {
-			t.Errorf("expected Content-Disposition to contain pdf-plitter.exe, got: %s", cd)
+	var splitResp struct {
+		Success        bool   `json:"success"`
+		OutputDir      string `json:"output_dir"`
+		ZipDownloadURL string `json:"zip_download_url"`
+		Parts          []struct {
+			FileName    string `json:"file_name"`
+			FilePath    string `json:"file_path"`
+			DownloadURL string `json:"download_url"`
+		} `json:"parts"`
+	}
+	if err := json.Unmarshal(recSplit.Body.Bytes(), &splitResp); err != nil {
+		t.Fatal(err)
+	}
+	if !splitResp.Success || len(splitResp.Parts) != 3 {
+		t.Fatalf("unexpected split response: %+v", splitResp)
+	}
+	if splitResp.OutputDir != "" {
+		t.Errorf("raw server output_dir should not be returned")
+	}
+	for _, p := range splitResp.Parts {
+		if p.FilePath != "" {
+			t.Errorf("part file_path should be scrubbed, got %q", p.FilePath)
 		}
 	}
 
-	// Test platform=darwin
-	reqMac := httptest.NewRequest(http.MethodGet, "/api/download-app?platform=darwin", nil)
-	recMac := httptest.NewRecorder()
-	handleDownloadApp(recMac, reqMac)
-	if recMac.Code != http.StatusNotFound {
-		t.Errorf("expected 404 for macOS, got %d", recMac.Code)
+	// 3. Download ZIP and verify RFC 6266 / mime.FormatMediaType Content-Disposition
+	reqZip := httptest.NewRequest(http.MethodGet, splitResp.ZipDownloadURL, nil)
+	recZip := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recZip, reqZip)
+	if recZip.Code != http.StatusOK {
+		t.Fatalf("zip download failed (%d)", recZip.Code)
 	}
-}
-
-func TestHandleHeartbeat(t *testing.T) {
-	activeConfig = ServerConfig{
-		Standalone: true,
+	cd := recZip.Header().Get("Content-Disposition")
+	if !strings.HasPrefix(cd, "attachment;") {
+		t.Errorf("expected RFC-encoded attachment Content-Disposition, got %q", cd)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/heartbeat", nil)
-	rec := httptest.NewRecorder()
-	handleHeartbeat(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", rec.Code)
+	// 4. Clear session
+	reqClear := httptest.NewRequest(http.MethodDelete, "/api/clear?session_id="+sid, nil)
+	reqClear.Header.Set("X-CSRF-Token", s.CSRFToken())
+	recClear := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recClear, reqClear)
+	if recClear.Code != http.StatusOK {
+		t.Fatalf("clear failed (%d): %s", recClear.Code, recClear.Body.String())
 	}
 
-	var resp map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode json: %v", err)
-	}
-
-	if resp["status"] != "ok" || resp["standalone"] != true {
-		t.Errorf("unexpected heartbeat response: %v", resp)
-	}
-}
-
-func TestHandleShutdown(t *testing.T) {
-	tmpDir := t.TempDir()
-	activeConfig = ServerConfig{
-		SessionsDir: tmpDir,
-		Standalone:  false, // Non-standalone: verify it clears session without killing test process
-	}
-
-	sessionID := "test_session_shutdown"
-	sessionPath := filepath.Join(tmpDir, sessionID)
-	_ = os.MkdirAll(filepath.Join(sessionPath, "input"), 0755)
-
-	payload := `{"session_id": "test_session_shutdown"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/shutdown", strings.NewReader(payload))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	handleShutdown(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
+	sessionPath := filepath.Join(s.cfg.SessionsDir, sid)
 	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
-		t.Errorf("expected session directory %s to be purged on shutdown call", sessionPath)
-	}
-
-	// Test shutdown with empty session_id (e.g. browser closed before selecting book)
-	reqEmpty := httptest.NewRequest(http.MethodPost, "/api/shutdown", strings.NewReader(`{}`))
-	reqEmpty.Header.Set("Content-Type", "application/json")
-	recEmpty := httptest.NewRecorder()
-	handleShutdown(recEmpty, reqEmpty)
-	if recEmpty.Code != http.StatusOK {
-		t.Fatalf("expected status 200 for empty session shutdown, got %d: %s", recEmpty.Code, recEmpty.Body.String())
+		t.Errorf("expected session directory to be deleted after /api/clear")
 	}
 }
