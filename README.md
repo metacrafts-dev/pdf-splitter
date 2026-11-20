@@ -118,3 +118,21 @@ go test -race ./...
 go vet ./...
 ./build.sh
 ```
+
+## 🔏 Code Signing (removing "Unknown publisher")
+
+Windows builds are signed with an Authenticode certificate from
+[Certum's Open Source Code Signing](https://shop.certum.eu/open-source-code-signing-on-simplysign.html)
+program (€49/yr, cloud-based, for non-commercial open-source projects).
+
+Setup (one-time, on the build machine):
+1. Purchase the certificate and complete identity verification (ID document + utility bill + this repo's URL).
+2. Install [SimplySign Desktop](https://www.certum.eu/en/lp/simplysign/) and activate the certificate —
+   it appears as a virtual smart card.
+
+Sign and release:
+```powershell
+.\sign.ps1                    # signs dist\*.exe + timestamps
+cd dist; sha256sum pdf-splitter.exe pdf-splitter-linux-amd64 > SHA256SUMS.txt
+gh release create vX.Y.Z dist/* --generate-notes
+```
