@@ -3,913 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="__CSRF_TOKEN__">
   <title>مُقسِّم الكتب — أداة تقسيم ملفات PDF</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M7 8.5C7 7.67 7.67 7 8.5 7H14.5C15.33 7 16 7.67 16 8.5V23.5C16 23 15.33 22.5 14.5 22.5H8.5C7.67 22.5 7 23 7 23.5V8.5Z' fill='%23ffffff'/%3E%3Cpath d='M25 8.5C25 7.67 24.33 7 23.5 7H17.5C16.67 7 16 7.67 16 8.5V23.5C16 23 16.67 22.5 17.5 22.5H23.5C24.33 22.5 25 23 25 23.5V8.5Z' fill='%23e2e8f0'/%3E%3Cpath d='M15.2 6.5H16.8V25H15.2V6.5Z' fill='%23f59e0b'/%3E%3Ccircle cx='16' cy='25' r='1.5' fill='%23f59e0b'/%3E%3C/svg%3E">
   <link rel="alternate icon" href="/favicon.ico">
-  <style>
-    /* ==========================================================================
-       THEME VARIABLES & COLOR PALETTE
-       Preserves clean light aesthetic with rounded cards and rectangular borders
-       ========================================================================== */
-    :root {
-      --bg: #f8fafc;
-      --card: #ffffff;
-      --card-border: #e2e8f0;
-      --text: #0f172a;
-      --text-muted: #64748b;
-      --accent: #2563eb;
-      --accent-hover: #1d4ed8;
-      --accent-light: #eff6ff;
-      --success: #059669;
-      --success-hover: #047857;
-      --success-light: #ecfdf5;
-      --warning: #d97706;
-      --warning-light: #fffbeb;
-      --warning-border: #fcd34d;
-      --danger: #dc2626;
-      --danger-light: #fef2f2;
-      --card-radius: 16px;
-      --btn-radius: 9999px;
-    }
-
-    /* Base Reset */
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
-    }
-
-    body {
-      background-color: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 32px 16px 60px;
-      transition: background-color 0.2s ease;
-    }
-
-    .container {
-      width: 100%;
-      max-width: 880px;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-
-    /* ==========================================================================
-       HEADER & NAVIGATION CONTROLS
-       ========================================================================== */
-    header {
-      width: 100%;
-      margin-bottom: 6px;
-    }
-
-    .header-nav {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-      width: 100%;
-    }
-
-    .nav-btn {
-      font-size: 13px;
-      padding: 8px 18px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-    }
-
-    /* Language Switcher Segmented Control */
-    .lang-switcher {
-      display: inline-flex;
-      background: #ffffff;
-      border: 1px solid var(--card-border);
-      border-radius: var(--btn-radius);
-      padding: 3px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-      gap: 3px;
-    }
-
-    .lang-btn {
-      background: transparent;
-      border: none;
-      border-radius: var(--btn-radius);
-      padding: 6px 14px;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-muted);
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.2s ease;
-    }
-
-    .lang-btn:hover {
-      color: var(--text);
-      background: #f1f5f9;
-    }
-
-    .lang-btn.active {
-      background: var(--accent);
-      color: #ffffff;
-      box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
-    }
-
-    .lang-badge {
-      font-size: 10px;
-      font-weight: 800;
-      padding: 1px 5px;
-      border-radius: 4px;
-      background: rgba(0, 0, 0, 0.08);
-    }
-
-    .lang-btn.active .lang-badge {
-      background: rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-    }
-
-    .header-content {
-      text-align: center;
-    }
-
-    .header-content h1 {
-      font-size: 32px;
-      font-weight: 800;
-      letter-spacing: -0.6px;
-      color: #0f172a;
-      margin-bottom: 8px;
-    }
-
-    .header-content h1 span {
-      background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .header-content p {
-      color: var(--text-muted);
-      font-size: 15px;
-      max-width: 620px;
-      margin: 0 auto;
-      line-height: 1.5;
-    }
-
-    /* ==========================================================================
-       ROUNDED CARDS & RECTANGULAR LINES
-       ========================================================================== */
-    .card {
-      background: var(--card);
-      border: 1px solid var(--card-border);
-      border-radius: var(--card-radius);
-      padding: 28px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-      transition: all 0.2s ease;
-    }
-
-    hr {
-      border: 0;
-      border-top: 1px solid var(--card-border);
-      border-radius: 0;
-      margin: 20px 0;
-    }
-
-    /* ==========================================================================
-       DROPZONE (Rectangular Selection Border)
-       ========================================================================== */
-    .dropzone {
-      border: 2px dashed #94a3b8;
-      border-radius: 0; /* Strict rectangular border line */
-      padding: 44px 20px;
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      background: #ffffff;
-      position: relative;
-    }
-
-    .dropzone:hover, .dropzone.dragover {
-      border-color: var(--accent);
-      background: var(--accent-light);
-    }
-
-    .dropzone svg {
-      width: 54px;
-      height: 54px;
-      stroke: var(--accent);
-      margin-bottom: 14px;
-    }
-
-    .dropzone h3 {
-      font-size: 17px;
-      font-weight: 700;
-      color: #1e293b;
-      margin-bottom: 6px;
-    }
-
-    .dropzone p {
-      font-size: 13px;
-      color: var(--text-muted);
-    }
-
-    .file-input {
-      display: none;
-    }
-
-    /* ==========================================================================
-       UPLOAD PROGRESS INDICATOR (Live % & Animated Progress Bar)
-       ========================================================================== */
-    .upload-progress {
-      display: none;
-      background: #ffffff;
-      border: 1.5px solid #cbd5e1;
-      border-radius: 0; /* Rectangular border */
-      padding: 22px 24px;
-      margin-top: 20px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-    }
-
-    .upload-progress.active {
-      display: block;
-    }
-
-    .progress-info-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 14px;
-    }
-
-    .progress-file-info {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      overflow: hidden;
-    }
-
-    .progress-icon {
-      width: 32px;
-      height: 32px;
-      stroke: var(--accent);
-      flex-shrink: 0;
-    }
-
-    .progress-file-name {
-      font-weight: 700;
-      font-size: 14.5px;
-      color: #0f172a;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 480px;
-    }
-
-    .progress-status-text {
-      font-size: 12.5px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .progress-percent-badge {
-      background: var(--accent-light);
-      color: var(--accent);
-      border: 1px solid #bfdbfe;
-      font-weight: 800;
-      font-size: 13.5px;
-      padding: 5px 14px;
-      border-radius: var(--btn-radius);
-      white-space: nowrap;
-      letter-spacing: 0.3px;
-    }
-
-    .progress-bar-track {
-      width: 100%;
-      height: 12px;
-      background: #e2e8f0;
-      border-radius: 6px;
-      overflow: hidden;
-      position: relative;
-    }
-
-    .progress-bar-fill {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #2563eb, #3b82f6, #60a5fa, #2563eb);
-      background-size: 200% 100%;
-      border-radius: 6px;
-      transition: width 0.15s ease-out;
-      animation: progressShimmer 2s linear infinite;
-    }
-
-    @keyframes progressShimmer {
-      0% { background-position: 0% 50%; }
-      100% { background-position: 200% 50%; }
-    }
-
-    .progress-details-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 10px;
-      font-size: 12.5px;
-      color: var(--text-muted);
-    }
-
-    /* ==========================================================================
-       BOOK INFO BOX & IMMEDIATE REMOVE ACTION
-       ========================================================================== */
-    .book-info {
-      display: none;
-      background: #f1f5f9;
-      border: 1px solid #cbd5e1;
-      border-radius: 0; /* Rectangular line */
-      padding: 18px 22px;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-top: 20px;
-    }
-
-    .book-info.active {
-      display: flex;
-    }
-
-    .book-meta {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      overflow: hidden;
-    }
-
-    .book-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 0; /* Rectangular icon box */
-      background: var(--accent-light);
-      border: 1px solid #bfdbfe;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .book-icon svg {
-      width: 24px;
-      height: 24px;
-      stroke: var(--accent);
-    }
-
-    .book-details h4 {
-      font-size: 16px;
-      font-weight: 700;
-      color: #0f172a;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 440px;
-    }
-
-    .book-details p {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 5px 12px;
-      border-radius: var(--btn-radius);
-      font-size: 12px;
-      font-weight: 700;
-      background: var(--success-light);
-      color: var(--success);
-      border: 1px solid #a7f3d0;
-      white-space: nowrap;
-    }
-
-    /* ==========================================================================
-       SPLIT CONTROLLER & PAGE BOUNDARIES
-       ========================================================================== */
-    .split-section {
-      display: none;
-      flex-direction: column;
-      gap: 22px;
-    }
-
-    .split-section.active {
-      display: flex;
-    }
-
-    .control-row {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .input-field {
-      flex: 1;
-      background: #ffffff;
-      border: 1.5px solid #cbd5e1;
-      border-radius: 0; /* Rectangular line */
-      padding: 12px 16px;
-      color: var(--text);
-      font-size: 14px;
-      outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-
-    .input-field:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-    }
-
-    /* Rounded Action Buttons */
-    .btn {
-      background: var(--accent);
-      color: #ffffff;
-      border: none;
-      border-radius: var(--btn-radius); /* Rounded buttons */
-      padding: 11px 22px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      transition: all 0.2s ease;
-      white-space: nowrap;
-      text-decoration: none;
-    }
-
-    .btn:hover {
-      background: var(--accent-hover);
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-    }
-
-    .btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      box-shadow: none;
-    }
-
-    .btn-secondary {
-      background: #f1f5f9;
-      color: #334155;
-      border: 1px solid #cbd5e1;
-    }
-
-    .btn-secondary:hover {
-      background: #e2e8f0;
-      box-shadow: none;
-      color: #0f172a;
-    }
-
-    .btn-success {
-      background: var(--success);
-    }
-
-    .btn-success:hover {
-      background: var(--success-hover);
-      box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
-    }
-
-    .btn-danger-outline {
-      background: #ffffff;
-      color: var(--danger);
-      border: 1px solid #fecaca;
-    }
-
-    .btn-danger-outline:hover {
-      background: #fef2f2;
-      border-color: var(--danger);
-      color: #991b1b;
-      box-shadow: none;
-    }
-
-    /* Chips (Rectangular Tags) */
-    .chips-container {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      min-height: 40px;
-      align-items: center;
-      padding: 4px 0;
-    }
-
-    .chip {
-      background: #ffffff;
-      border: 1.5px solid var(--accent);
-      border-radius: 0; /* Rectangular chip border */
-      color: var(--accent);
-      padding: 6px 14px;
-      font-size: 13px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      font-weight: 700;
-    }
-
-    .chip-remove {
-      cursor: pointer;
-      color: #64748b;
-      font-weight: bold;
-      font-size: 16px;
-      line-height: 1;
-      padding: 0 2px;
-      transition: color 0.15s;
-    }
-
-    .chip-remove:hover {
-      color: var(--danger);
-    }
-
-    /* ==========================================================================
-       CALCULATED DIVISIONS & SHARP AMBER REMAINING CELL
-       ========================================================================== */
-    .parts-preview {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .parts-preview h4 {
-      font-size: 14px;
-      font-weight: 700;
-      color: #475569;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-    }
-
-    .parts-list {
-      display: flex;
-      flex-direction: column;
-      gap: 14px; /* Margin between each calculated division */
-    }
-
-    /* Standard Division Card */
-    .part-card {
-      background: #ffffff;
-      border: 1px solid #cbd5e1;
-      border-left: 5px solid var(--accent);
-      border-radius: 0; /* Rectangular border line */
-      padding: 14px 18px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-      transition: border-color 0.15s, background-color 0.15s;
-    }
-
-    .part-card:hover {
-      border-color: #94a3b8;
-      background: #f8fafc;
-    }
-
-    /* Sleek, Crisp Rectangular Amber Block for Remainder */
-    .part-card.is-rest {
-      border: 1.5px solid var(--warning-border);
-      border-left: 6px solid var(--warning);
-      border-radius: 0 !important; /* Strictly Rectangular border, no rounded corners */
-      background: var(--warning-light);
-      box-shadow: 0 2px 4px rgba(217, 119, 6, 0.08);
-    }
-
-    .part-card.is-rest:hover {
-      border-color: #f59e0b;
-      background: #fef3c7;
-    }
-
-    .part-title {
-      font-weight: 700;
-      font-size: 14px;
-      color: #1e293b;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .part-range {
-      color: var(--text-muted);
-      font-size: 13px;
-      font-weight: 500;
-    }
-
-    .part-count-badge {
-      background: #e2e8f0;
-      color: #334155;
-      padding: 4px 10px;
-      border-radius: var(--btn-radius);
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .part-count-badge.rest {
-      background: #fde68a;
-      color: #92400e;
-    }
-
-    /* ==========================================================================
-       STATUS BANNER & OUTPUT TABLE
-       ========================================================================== */
-    .status-box {
-      display: none;
-      padding: 18px 24px;
-      border-radius: 0; /* Rectangular line */
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-
-    .status-box.active {
-      display: flex;
-    }
-
-    .status-box.success {
-      background: #ecfdf5;
-      border: 1.5px solid #a7f3d0;
-      border-left: 6px solid var(--success);
-      color: #065f46;
-    }
-
-    .status-box.error {
-      background: #fef2f2;
-      border: 1.5px solid #fecaca;
-      border-left: 6px solid var(--danger);
-      color: #991b1b;
-    }
-
-    .table-container {
-      overflow-x: auto;
-      margin-top: 16px;
-    }
-
-    .output-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-      border: 1px solid var(--card-border);
-      border-radius: 0; /* Rectangular lines */
-    }
-
-    .output-table th, .output-table td {
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--card-border);
-      text-align: left;
-    }
-
-    .output-table th {
-      color: #475569;
-      font-weight: 700;
-      background: #f1f5f9;
-      text-transform: uppercase;
-      font-size: 11px;
-      letter-spacing: 0.5px;
-    }
-
-    .output-table tr:hover td {
-      background: #f8fafc;
-    }
-
-    .spinner {
-      border: 3px solid rgba(0, 0, 0, 0.1);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      width: 20px;
-      height: 20px;
-      animation: spin 0.8s linear infinite;
-      display: none;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    /* Retention Alert */
-    .retention-alert {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      border-left: 4px solid var(--accent);
-      padding: 12px 16px;
-      font-size: 13px;
-      color: #1e40af;
-      margin-bottom: 16px;
-    }
-
-    .retention-alert svg {
-      width: 20px;
-      height: 20px;
-      flex-shrink: 0;
-      stroke: var(--accent);
-    }
-
-    /* ==========================================================================
-       DOWNLOAD APPLICATION MODAL
-       ========================================================================== */
-    .modal-backdrop {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(15, 23, 42, 0.6);
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 20px;
-    }
-
-    .modal-card {
-      background: var(--card);
-      border: 1px solid var(--card-border);
-      border-radius: var(--card-radius);
-      max-width: 620px;
-      width: 100%;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-      overflow: hidden;
-      animation: modalFadeIn 0.2s ease-out;
-    }
-
-    @keyframes modalFadeIn {
-      from { opacity: 0; transform: scale(0.96); }
-      to { opacity: 1; transform: scale(1); }
-    }
-
-    .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 22px 26px;
-      border-bottom: 1px solid var(--card-border);
-    }
-
-    .modal-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 10px;
-      background: var(--accent-light);
-      border: 1px solid #bfdbfe;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .modal-close {
-      background: transparent;
-      border: none;
-      font-size: 26px;
-      font-weight: 700;
-      color: var(--text-muted);
-      cursor: pointer;
-      padding: 4px 8px;
-      border-radius: 6px;
-      line-height: 1;
-    }
-
-    .modal-close:hover {
-      color: var(--text);
-      background: #f1f5f9;
-    }
-
-    .modal-body {
-      padding: 22px 26px;
-    }
-
-    .download-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .download-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 16px 18px;
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      background: #ffffff;
-      transition: all 0.15s ease;
-    }
-
-    .download-item:hover {
-      border-color: #cbd5e1;
-      background: #f8fafc;
-    }
-
-    .download-item.coming-soon {
-      opacity: 0.8;
-      background: #f8fafc;
-    }
-
-    .download-item-info {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .download-platform-icon {
-      width: 42px;
-      height: 42px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .download-platform-name {
-      font-weight: 700;
-      font-size: 15px;
-      color: #0f172a;
-    }
-
-    .download-filename {
-      font-size: 12.5px;
-      color: var(--accent);
-      margin-top: 2px;
-    }
-
-    .download-desc {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .modal-footer {
-      padding: 16px 26px;
-      background: #f8fafc;
-      border-top: 1px solid var(--card-border);
-      display: flex;
-      justify-content: flex-end;
-    }
-
-    /* ==========================================================================
-       RTL (RIGHT-TO-LEFT) & ARABIC ADAPTATIONS
-       ========================================================================== */
-    [dir="rtl"] {
-      text-align: right;
-    }
-
-    [dir="rtl"] * {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Tajawal", "Cairo", "Noto Sans Arabic", Roboto, "Helvetica Neue", sans-serif;
-    }
-
-    [dir="rtl"] .output-table th,
-    [dir="rtl"] .output-table td {
-      text-align: right;
-    }
-
-    [dir="rtl"] .part-card {
-      border-left: 1px solid #cbd5e1;
-      border-right: 5px solid var(--accent);
-    }
-
-    [dir="rtl"] .part-card.is-rest {
-      border-left: 1.5px solid var(--warning-border);
-      border-right: 6px solid var(--warning);
-    }
-
-    [dir="rtl"] .status-box.success {
-      border-left: 1.5px solid #a7f3d0;
-      border-right: 6px solid var(--success);
-    }
-
-    [dir="rtl"] .status-box.error {
-      border-left: 1.5px solid #fecaca;
-      border-right: 6px solid var(--danger);
-    }
-
-    [dir="rtl"] .retention-alert {
-      border-left: 1px solid #bfdbfe;
-      border-right: 4px solid var(--accent);
-    }
-
-    [dir="rtl"] .modal-footer {
-      justify-content: flex-start;
-    }
-  </style>
+  <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
 
   <div class="container">
-    <!-- Header with Bilingual Controls & App Download Button -->
     <header>
       <div class="header-nav">
         <button type="button" class="btn btn-secondary nav-btn" id="openAppModalBtn">
@@ -918,10 +20,9 @@
             <polyline points="7 10 12 15 17 10"></polyline>
             <line x1="12" y1="15" x2="12" y2="3"></line>
           </svg>
-          <span data-i18n="btnDownloadApp">Download App</span>
+          <span data-i18n="btnDownloadApp">تحميل البرنامج</span>
         </button>
 
-        <!-- Segmented Language Switcher -->
         <div class="lang-switcher" role="group" aria-label="Language Switcher">
           <button type="button" class="lang-btn" id="langEnBtn" data-lang="en">
             <span class="lang-badge">EN</span> English
@@ -938,31 +39,37 @@
       </div>
     </header>
 
-    <!-- Upload Card (Rounded Card) -->
     <div class="card">
-      <!-- Rectangular Selection Dropzone -->
       <div class="dropzone" id="dropzone">
         <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
         </svg>
         <h3 data-i18n="dropzoneTitle">اسحب وأفلت ملف PDF للكتاب هنا</h3>
         <p data-i18n="dropzoneSubtitle">أو انقر لاختيار ملف من جهاز الكمبيوتر</p>
-        <input type="file" id="fileInput" class="file-input" accept="application/pdf">
+        <input type="file" id="fileInput" class="file-input" accept="application/pdf,.pdf">
       </div>
 
-      <!-- Modern Upload Progress Indicator (prominent with live %) -->
       <div class="upload-progress" id="uploadProgress">
         <div class="progress-info-row">
           <div class="progress-file-info">
             <svg class="progress-icon" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
             </svg>
-            <div>
+            <div class="progress-file-text">
               <div class="progress-file-name" id="progressFileName">filename.pdf</div>
               <div class="progress-status-text" id="progressStatusText">جارٍ الرفع إلى الخادم...</div>
             </div>
           </div>
-          <div class="progress-percent-badge" id="progressPercentBadge">0%</div>
+          <div class="progress-actions">
+            <div class="progress-percent-badge" id="progressPercentBadge">0%</div>
+            <button type="button" class="btn btn-secondary btn-danger-outline btn-sm" id="cancelUploadBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              <span data-i18n="btnCancelUpload">إلغاء الرفع</span>
+            </button>
+          </div>
         </div>
 
         <div class="progress-bar-track">
@@ -971,11 +78,19 @@
 
         <div class="progress-details-row">
           <span id="progressBytesText">0.0 MB / 0.0 MB</span>
-          <span id="progressStorageText">سحابة تخزين S3 المباشرة / محلي</span>
+          <div class="progress-telemetry" aria-live="polite">
+            <span class="telemetry-item" id="progressSpeedText">--</span>
+            <span class="telemetry-sep" aria-hidden="true">&bull;</span>
+            <span class="telemetry-item" id="progressEtaText">--</span>
+          </div>
+          <span id="progressStorageText"></span>
         </div>
       </div>
 
-      <!-- Book Info Header with Immediate Remove Action -->
+      <div class="upload-cancelled-notice" id="uploadCancelledNotice" role="status" aria-live="polite" style="display: none;">
+        <span id="uploadCancelledText" data-i18n="uploadCancelled">تم إلغاء رفع الملف.</span>
+      </div>
+
       <div class="book-info" id="bookInfo">
         <div class="book-meta">
           <div class="book-icon">
@@ -988,9 +103,9 @@
             <p id="bookSize">0.00 MB</p>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="book-actions">
           <span class="badge" id="bookPagesBadge">0 صفحة</span>
-          <button type="button" class="btn btn-secondary btn-danger-outline" id="clearBookBtn" title="حذف الكتاب ومسح بيانات الجلسة">
+          <button type="button" class="btn btn-secondary btn-danger-outline" id="clearBookBtn" data-i18n-title="btnClearBook">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -1001,105 +116,79 @@
       </div>
     </div>
 
-    <!-- Split Controller Card (Rounded Card) -->
     <div class="card split-section" id="splitSection">
       <div>
-        <h3 data-i18n="splitSectionTitle" style="font-size: 17px; font-weight: 700; margin-bottom: 6px; color: #0f172a;">
-          إضافة نقاط التقسيم (حدود الصفحات شاملة)
-        </h3>
-        <p data-i18n="splitSectionDesc" style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 14px;">
-          أدخل أرقام الصفحات التي ينتهي عندها كل جزء. يمكنك إدخال عدة نقاط مفصولة بفواصل (مثل 10, 20, 40) أو إضافتها نقطة تلو الأخرى.
-        </p>
+        <h3 class="section-heading" data-i18n="splitSectionTitle">إضافة نقاط التقسيم (حدود الصفحات شاملة)</h3>
+        <p class="section-desc" data-i18n="splitSectionDesc">أدخل أرقام الصفحات التي ينتهي عندها كل جزء. يمكنك إدخال عدة نقاط مفصولة بفواصل (مثل 10, 20, 40) أو إضافتها نقطة تلو الأخرى.</p>
 
         <div class="control-row">
-          <!-- Text input supporting comma-separated numbers -->
           <input type="text" id="splitInput" class="input-field" data-i18n-placeholder="splitInputPlaceholder" placeholder="أدخل نقاط التقسيم مثل 10, 20, 40 أو رقم صفحة مفرد">
-          <button class="btn" id="addPointBtn" data-i18n="btnAddPoints">إضافة النقطة (النقاط)</button>
-          <button class="btn btn-secondary" id="presetExampleBtn" data-i18n="btnPreset" title="تحميل مثال 10, 20, 40">مثال (10, 20, 40)</button>
-          <button class="btn btn-secondary" id="clearPointsBtn" data-i18n="btnClear" style="color: var(--danger);">مسح</button>
+          <button type="button" class="btn" id="addPointBtn" data-i18n="btnAddPoints">إضافة النقطة (النقاط)</button>
+          <button type="button" class="btn btn-secondary" id="presetExampleBtn" data-i18n="btnPreset">مثال (10, 20, 40)</button>
+          <button type="button" class="btn btn-secondary btn-text-danger" id="clearPointsBtn" data-i18n="btnClear">مسح</button>
         </div>
       </div>
 
-      <!-- Active Split Points Chips (Rectangular Tags) -->
       <div>
-        <div data-i18n="activePointsLabel" style="font-size: 12px; color: #64748b; margin-bottom: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
-          نقاط التقسيم النشطة:
-        </div>
+        <div class="active-points-label" data-i18n="activePointsLabel">نقاط التقسيم النشطة:</div>
         <div class="chips-container" id="chipsContainer">
-          <span data-i18n="noPointsYet" style="color: var(--text-muted); font-size: 13px;">لم تتم إضافة نقاط تقسيم بعد (الكتاب بالكامل كجزء واحد).</span>
+          <span class="muted-note" data-i18n="noPointsYet">لم تتم إضافة نقاط تقسيم بعد (الكتاب بالكامل كجزء واحد).</span>
         </div>
       </div>
 
       <hr>
 
-      <!-- Calculated Divisions Preview (with margin between each division) -->
       <div class="parts-preview">
         <h4 data-i18n="calculatedDivisionsTitle">أجزاء الكتاب المحسوبة</h4>
-        <div class="parts-list" id="partsList">
-          <!-- Dynamically populated part division cards -->
-        </div>
+        <div class="parts-list" id="partsList"></div>
       </div>
 
       <hr>
 
-      <!-- Actions -->
-      <div style="display: flex; gap: 14px; align-items: center; justify-content: flex-end;">
+      <div class="split-actions">
         <div class="spinner" id="splitSpinner"></div>
-        <button class="btn btn-success" id="splitNowBtn" style="padding: 13px 32px; font-size: 15px;" data-i18n="btnSplit">
-          Split & Package Book
-        </button>
+        <button type="button" class="btn btn-success btn-split-lg" id="splitNowBtn" data-i18n="btnSplit">تقسيم وحزم الكتاب</button>
       </div>
     </div>
 
-    <!-- Status & Results Card (Rounded Card) -->
     <div class="card" id="resultsCard" style="display: none;">
-      <!-- Retention Notice -->
       <div class="retention-alert" id="retentionAlert">
         <svg fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <span id="retentionText">Automatic Retention: Files will be automatically purged after 30 minutes.</span>
+        <span id="retentionText">الاحتفاظ التلقائي: سيتم حذف وتطهير الملفات تلقائياً بعد 15 دقيقة.</span>
       </div>
 
-      <!-- Status Banner (Rectangular Line) -->
       <div class="status-box" id="statusBox">
-        <span id="statusText" style="font-weight: 600;">Operation status</span>
-        <div style="display: flex; gap: 10px;">
-          <a class="btn btn-success" id="downloadZipBtn" href="#" download style="display: none;">
-            📦 Download All (.ZIP)
-          </a>
-          <button class="btn btn-secondary" id="openFolderBtn" style="display: none;" data-i18n="btnOpenFolder">
-            📁 Open Output Folder
-          </button>
+        <span id="statusText" class="status-text"></span>
+        <div class="status-actions">
+          <a class="btn btn-success" id="downloadZipBtn" href="#" download style="display: none;"></a>
+          <button type="button" class="btn btn-secondary" id="openFolderBtn" style="display: none;" data-i18n="btnOpenFolder">فتح مجلد المخرجات</button>
         </div>
       </div>
 
-      <!-- Output Table (Rectangular Lines) -->
       <div class="table-container">
         <table class="output-table">
           <thead>
             <tr>
-              <th data-i18n="tableHeaderPart">Part</th>
-              <th data-i18n="tableHeaderFileName">File Name</th>
-              <th data-i18n="tableHeaderPageRange">Page Range</th>
-              <th data-i18n="tableHeaderPages">Pages</th>
-              <th data-i18n="tableHeaderSize">Size</th>
-              <th data-i18n="tableHeaderAction">Action</th>
+              <th data-i18n="tableHeaderPart">الجزء</th>
+              <th data-i18n="tableHeaderFileName">اسم الملف</th>
+              <th data-i18n="tableHeaderPageRange">نطاق الصفحات</th>
+              <th data-i18n="tableHeaderPages">الصفحات</th>
+              <th data-i18n="tableHeaderSize">الحجم</th>
+              <th data-i18n="tableHeaderAction">الإجراء</th>
             </tr>
           </thead>
-          <tbody id="resultsTableBody">
-            <!-- Dynamically populated -->
-          </tbody>
+          <tbody id="resultsTableBody"></tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <!-- Application Downloads Modal (Windows, Linux, macOS Coming Soon) -->
   <div class="modal-backdrop" id="appModalBackdrop" style="display: none;">
     <div class="modal-card">
       <div class="modal-header">
-        <div style="display: flex; align-items: center; gap: 12px;">
+        <div class="modal-header-left">
           <div class="modal-icon">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
               <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
@@ -1108,10 +197,8 @@
             </svg>
           </div>
           <div>
-            <h3 data-i18n="modalTitle" style="font-size: 17px; font-weight: 700; color: #0f172a;">Download Standalone Application</h3>
-            <p data-i18n="modalSubtitle" style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">
-              Run Pdf Splitter locally on your machine or deploy to your own server
-            </p>
+            <h3 class="modal-title" data-i18n="modalTitle">تحميل البرنامج المستقل</h3>
+            <p class="modal-subtitle" data-i18n="modalSubtitle">شغّل مُقسِّم الكتب محلياً على جهازك أو انشره على خادمك الخاص</p>
           </div>
         </div>
         <button type="button" class="modal-close" id="closeAppModalBtn" aria-label="Close">&times;</button>
@@ -1119,7 +206,6 @@
 
       <div class="modal-body">
         <div class="download-grid">
-          <!-- Windows Binary -->
           <div class="download-item">
             <div class="download-item-info">
               <div class="download-platform-icon">
@@ -1129,1060 +215,59 @@
               </div>
               <div>
                 <div class="download-platform-name">Windows (x64)</div>
-                <div class="download-filename"><code>pdf-plitter.exe</code></div>
-                <div class="download-desc" data-i18n="platformWinDesc">Standalone executable with embedded web GUI & CLI</div>
+                <div class="download-filename"><code>pdf-splitter.exe</code></div>
+                <div class="download-desc" data-i18n="platformWinDesc">برنامج تشغيل تنفيذي لنظام ويندوز مع واجهة ويب رسومية مدمجة وسطر أوامر</div>
               </div>
             </div>
-            <a href="/api/download-app?platform=windows" class="btn btn-success" download="pdf-plitter.exe">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              <span data-i18n="btnDownload">Download</span>
+            <a href="/api/download-app?platform=windows" class="btn btn-success" download="pdf-splitter.exe">
+              <span data-i18n="btnDownload">تحميل</span>
             </a>
           </div>
 
-          <!-- Linux Binary -->
           <div class="download-item">
             <div class="download-item-info">
               <div class="download-platform-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="#f05032">
-                  <circle cx="12" cy="12" r="10" stroke="#f05032" stroke-width="2" fill="none"/>
-                  <polyline points="8 12 11 15 16 9" stroke="#f05032" stroke-width="2" fill="none"/>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="#f05032" stroke-width="2" />
+                  <polyline points="8 12 11 15 16 9" stroke="#f05032" stroke-width="2" />
                 </svg>
               </div>
               <div>
                 <div class="download-platform-name">Linux (amd64 / x86_64)</div>
-                <div class="download-filename"><code>pdf-plitter-linux-amd64</code></div>
-                <div class="download-desc" data-i18n="platformLinuxDesc">For Ubuntu, Debian, CentOS, AlmaLinux VPS & systemd</div>
+                <div class="download-filename"><code>pdf-splitter-linux-amd64</code></div>
+                <div class="download-desc" data-i18n="platformLinuxDesc">لخوادم لينكس Ubuntu و Debian و CentOS و AlmaLinux مع دعم systemd</div>
               </div>
             </div>
-            <a href="/api/download-app?platform=linux" class="btn btn-success" download="pdf-plitter-linux-amd64">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              <span data-i18n="btnDownload">Download</span>
+            <a href="/api/download-app?platform=linux" class="btn btn-success" download="pdf-splitter-linux-amd64">
+              <span data-i18n="btnDownload">تحميل</span>
             </a>
           </div>
 
-          <!-- macOS (Coming Soon) -->
           <div class="download-item coming-soon">
             <div class="download-item-info">
-              <div class="download-platform-icon" style="opacity: 0.6;">
+              <div class="download-platform-icon muted-icon">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="#64748b">
-                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.4c.59-.72 1-1.72.89-2.72-.88.04-1.95.59-2.57 1.32-.55.63-.99 1.66-.88 2.63 1 .08 1.98-.51 2.56-1.23z"/>
+                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.4c.59-.72 1-1.72.89-2.72-.88.04-1.95.59-2.57 1.32-.55.63-.99 1.66-.88 2.63 1 .08 1.98-.51 2.56-1.23z" />
                 </svg>
               </div>
               <div>
-                <div class="download-platform-name">macOS (Apple Silicon & Intel)</div>
-                <div class="download-filename"><code>pdf-plitter-darwin</code></div>
-                <div class="download-desc" data-i18n="platformMacDesc">Universal binary for macOS Sonoma / Sequoia</div>
+                <div class="download-platform-name">macOS (Apple Silicon &amp; Intel)</div>
+                <div class="download-filename"><code>pdf-splitter-darwin</code></div>
+                <div class="download-desc" data-i18n="platformMacDesc">حزمة شاملة لأجهزة ماك بنظامي Apple Silicon و Intel</div>
               </div>
             </div>
-            <span class="badge" style="background: #f1f5f9; color: #64748b; border-color: #cbd5e1; padding: 6px 14px; font-size: 13px;" data-i18n="badgeComingSoon">
-              Coming Soon
-            </span>
+            <span class="badge badge-muted" data-i18n="badgeComingSoon">قريباً</span>
           </div>
         </div>
       </div>
 
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" id="modalDismissBtn" data-i18n="btnClose">Close</button>
+        <button type="button" class="btn btn-secondary" id="modalDismissBtn" data-i18n="btnClose">إغلاق</button>
       </div>
     </div>
   </div>
 
-  <script>
-    /**
-     * ============================================================================
-     * PDF SPLITTER FRONTEND APPLICATION LOGIC
-     * Features:
-     * 1. Real-time upload progress with XMLHttpRequest (live %, MB transferred, S3/local)
-     * 2. Comprehensive bilingual i18n support (English & Arabic with RTL layout)
-     * 3. Inclusive page boundary calculations with crisp rectangular remainder block
-     * 4. Session cleanup hook (/api/clear via beforeunload sendBeacon & clear button)
-     * 5. Download App modal for standalone binaries
-     * ============================================================================
-     */
-
-    // Application state
-    let currentBook = null;
-    let currentFile = null;
-    let currentSessionId = "";
-    let splitPoints = [];
-    let lastOutputDir = "";
-    let lastSplitData = null;
-    let currentXhr = null;
-
-    // DOM Elements
-    const dropzone = document.getElementById('dropzone');
-    const fileInput = document.getElementById('fileInput');
-    const uploadProgress = document.getElementById('uploadProgress');
-    const progressFileName = document.getElementById('progressFileName');
-    const progressStatusText = document.getElementById('progressStatusText');
-    const progressPercentBadge = document.getElementById('progressPercentBadge');
-    const progressBarFill = document.getElementById('progressBarFill');
-    const progressBytesText = document.getElementById('progressBytesText');
-    const progressStorageText = document.getElementById('progressStorageText');
-
-    const bookInfo = document.getElementById('bookInfo');
-    const bookName = document.getElementById('bookName');
-    const bookSize = document.getElementById('bookSize');
-    const bookPagesBadge = document.getElementById('bookPagesBadge');
-    const clearBookBtn = document.getElementById('clearBookBtn');
-
-    const splitSection = document.getElementById('splitSection');
-    const splitInput = document.getElementById('splitInput');
-    const addPointBtn = document.getElementById('addPointBtn');
-    const presetExampleBtn = document.getElementById('presetExampleBtn');
-    const clearPointsBtn = document.getElementById('clearPointsBtn');
-    const chipsContainer = document.getElementById('chipsContainer');
-    const partsList = document.getElementById('partsList');
-    const splitNowBtn = document.getElementById('splitNowBtn');
-    const splitSpinner = document.getElementById('splitSpinner');
-
-    const resultsCard = document.getElementById('resultsCard');
-    const statusBox = document.getElementById('statusBox');
-    const statusText = document.getElementById('statusText');
-    const downloadZipBtn = document.getElementById('downloadZipBtn');
-    const openFolderBtn = document.getElementById('openFolderBtn');
-    const resultsTableBody = document.getElementById('resultsTableBody');
-    const retentionText = document.getElementById('retentionText');
-
-    const langEnBtn = document.getElementById('langEnBtn');
-    const langArBtn = document.getElementById('langArBtn');
-
-    const openAppModalBtn = document.getElementById('openAppModalBtn');
-    const closeAppModalBtn = document.getElementById('closeAppModalBtn');
-    const modalDismissBtn = document.getElementById('modalDismissBtn');
-    const appModalBackdrop = document.getElementById('appModalBackdrop');
-
-    // ============================================================================
-    // BILINGUAL i18n TRANSLATION DICTIONARY (English & Arabic)
-    // ============================================================================
-    const i18n = {
-      en: {
-        // App Header
-        appTitle: "Pdf Splitter",
-        appSubtitle: "High-Performance PDF Book & Chapter Splitter with Inclusive Boundaries",
-        btnDownloadApp: "Download App",
-
-        // Upload Dropzone
-        dropzoneTitle: "Drag & Drop your Book PDF here",
-        dropzoneSubtitle: "or click to select a file from your computer",
-        invalidPdf: "Please select a valid PDF file.",
-
-        // Real-time Upload Progress
-        uploadingPdf: "Uploading PDF to server...",
-        uploadingDirectS3: "Uploading directly to S3 storage...",
-        requestingPresign: "Requesting secure S3 upload link...",
-        inspectingPdf: "Inspecting PDF structure and page count...",
-        uploadComplete: "Upload complete! Initializing split tool...",
-        uploadFailed: "Upload failed: ",
-        storageS3: "Direct S3 Cloud Storage",
-        storageLocal: "Local Server Storage",
-
-        // Book Info
-        bookPagesBadge: (n) => `${n} Total Pages`,
-        btnClearBook: "Clear Book",
-        confirmClearBook: "Are you sure you want to remove this book and delete all session data from the server?",
-
-        // Split Controller
-        splitSectionTitle: "Add Split Points (Inclusive Page Boundaries)",
-        splitSectionDesc: "Enter page numbers where parts end. You can enter multiple points separated by commas (e.g. 10, 20, 40) or add them one by one.",
-        splitInputPlaceholder: "Enter split points e.g. 10, 20, 40 or single page number",
-        btnAddPoints: "Add Point(s)",
-        btnPreset: "Example (10, 20, 40)",
-        btnClear: "Clear",
-        activePointsLabel: "Active Split Points:",
-        noPointsYet: "No split points added yet (entire book as 1 part).",
-        chipPage: (p) => `Page ${p}`,
-        chipRemoveTitle: "Remove",
-
-        // Calculated Divisions
-        calculatedDivisionsTitle: "Calculated Book Divisions",
-        partBadge: (idx) => `Part ${idx}`,
-        partRange: (start, end) => `Pages ${start} to ${end}`,
-        partPagesCount: (c) => `(${c} pages)`,
-        partPagesBadge: (c) => `${c} pgs`,
-        restPartBadge: (idx) => `Part ${idx} (Rest of Book)`,
-        restPartRange: (start, total) => `Pages ${start} to ${total}`,
-        restRemainingPages: (c) => `(${c} remaining pages)`,
-
-        // Actions
-        btnSplit: "Split & Package Book",
-        btnSplitting: "Splitting & Packaging...",
-
-        // Results
-        retentionNotice: (m) => `Automatic Retention: Files will be automatically purged after ${m} minutes.`,
-        statusSuccess: (n) => `Successfully split into ${n} parts!`,
-        btnDownloadZip: (mb) => `📦 Download All as ZIP (${mb} MB)`,
-        btnOpenFolder: "📁 Open Output Folder",
-
-        // Table
-        tableHeaderPart: "Part",
-        tableHeaderFileName: "File Name",
-        tableHeaderPageRange: "Page Range",
-        tableHeaderPages: "Pages",
-        tableHeaderSize: "Size",
-        tableHeaderAction: "Action",
-        tablePartRest: " (Rest)",
-        tablePagesCount: (n) => `${n} pages`,
-        btnDownloadPart: "📥 Download",
-
-        // Validation & Errors
-        errorSelectBookFirst: "Please select a book first.",
-        errorNotValidPositive: (t) => `"${t}" is not a valid positive page number.`,
-        errorPageMustBeLess: (num, total) => `Page ${num} must be less than total pages (${total}).`,
-        networkError: "Network error occurred. Please try again.",
-        splitFailed: "Split failed: ",
-
-        // Download Modal
-        modalTitle: "Download Standalone Application",
-        modalSubtitle: "Run Pdf Splitter locally on your machine or deploy to your own server",
-        platformWinDesc: "Standalone Windows executable with embedded web GUI & CLI",
-        platformLinuxDesc: "For Ubuntu, Debian, CentOS, AlmaLinux VPS & systemd",
-        platformMacDesc: "Universal binary for macOS Sonoma / Sequoia",
-        badgeComingSoon: "Coming Soon",
-        btnDownload: "Download",
-        btnClose: "Close"
-      },
-      ar: {
-        // App Header
-        appTitle: "مُقسِّم الكتب",
-        appSubtitle: "أداة فائقة الأداء لتقسيم الكتب وفصول PDF مع حدود صفحات شاملة ودقيقة",
-        btnDownloadApp: "تحميل البرنامج",
-
-        // Upload Dropzone
-        dropzoneTitle: "اسحب وأفلت ملف PDF للكتاب هنا",
-        dropzoneSubtitle: "أو انقر لاختيار ملف من جهاز الكمبيوتر",
-        invalidPdf: "يرجى اختيار ملف PDF صالح.",
-
-        // Real-time Upload Progress
-        uploadingPdf: "جارٍ رفع ملف PDF إلى الخادم...",
-        uploadingDirectS3: "جارٍ الرفع مباشرة إلى مساحة تخزين S3...",
-        requestingPresign: "جارٍ طلب رابط رفع آمن إلى S3...",
-        inspectingPdf: "جارٍ فحص بنية PDF وعدد الصفحات...",
-        uploadComplete: "اكتمل الرفع بنجاح! جارٍ تجهيز أداة التقسيم...",
-        uploadFailed: "فشل الرفع: ",
-        storageS3: "سحابة تخزين S3 المباشرة",
-        storageLocal: "تخزين الخادم المحلي",
-
-        // Book Info
-        bookPagesBadge: (n) => `${n} إجمالي الصفحات`,
-        btnClearBook: "حذف الكتاب",
-        confirmClearBook: "هل أنت متأكد من رغبتك في حذف هذا الكتاب ومسح كافة بيانات الجلسة من الخادم؟",
-
-        // Split Controller
-        splitSectionTitle: "إضافة نقاط التقسيم (حدود الصفحات شاملة)",
-        splitSectionDesc: "أدخل أرقام الصفحات التي ينتهي عندها كل جزء. يمكنك إدخال عدة نقاط مفصولة بفواصل (مثل 10, 20, 40) أو إضافتها نقطة تلو الأخرى.",
-        splitInputPlaceholder: "أدخل نقاط التقسيم مثل 10, 20, 40 أو رقم صفحة مفرد",
-        btnAddPoints: "إضافة النقطة (النقاط)",
-        btnPreset: "مثال (10, 20, 40)",
-        btnClear: "مسح",
-        activePointsLabel: "نقاط التقسيم النشطة:",
-        noPointsYet: "لم تتم إضافة نقاط تقسيم بعد (الكتاب بالكامل كجزء واحد).",
-        chipPage: (p) => `صفحة ${p}`,
-        chipRemoveTitle: "حذف",
-
-        // Calculated Divisions
-        calculatedDivisionsTitle: "أجزاء الكتاب المحسوبة",
-        partBadge: (idx) => `الجزء ${idx}`,
-        partRange: (start, end) => `الصفحات من ${start} إلى ${end}`,
-        partPagesCount: (c) => `(${c} صفحة)`,
-        partPagesBadge: (c) => `${c} ص`,
-        restPartBadge: (idx) => `الجزء ${idx} (باقي الكتاب)`,
-        restPartRange: (start, total) => `الصفحات من ${start} إلى ${total}`,
-        restRemainingPages: (c) => `(${c} صفحة متبقية)`,
-
-        // Actions
-        btnSplit: "تقسيم وحزم الكتاب",
-        btnSplitting: "جارٍ التقسيم وتوليد الأجزاء...",
-
-        // Results
-        retentionNotice: (m) => `الاحتفاظ التلقائي: سيتم حذف وتطهير الملفات تلقائياً بعد ${m} دقيقة.`,
-        statusSuccess: (n) => `تم تقسيم الكتاب بنجاح إلى ${n} أجزاء!`,
-        btnDownloadZip: (mb) => `📦 تحميل الكل في ملف مضغوط (${mb} م.ب)`,
-        btnOpenFolder: "📁 فتح مجلد المخرجات",
-
-        // Table
-        tableHeaderPart: "الجزء",
-        tableHeaderFileName: "اسم الملف",
-        tableHeaderPageRange: "نطاق الصفحات",
-        tableHeaderPages: "الصفحات",
-        tableHeaderSize: "الحجم",
-        tableHeaderAction: "الإجراء",
-        tablePartRest: " (الباقي)",
-        tablePagesCount: (n) => `${n} صفحة`,
-        btnDownloadPart: "📥 تحميل",
-
-        // Validation & Errors
-        errorSelectBookFirst: "يرجى اختيار كتاب أولاً.",
-        errorNotValidPositive: (t) => `"${t}" ليس رقم صفحة موجب صالح.`,
-        errorPageMustBeLess: (num, total) => `يجب أن تكون الصفحة ${num} أقل من إجمالي الصفحات (${total}).`,
-        networkError: "حدث خطأ في الاتصال بالشبكة. يرجى المحاولة مرة أخرى.",
-        splitFailed: "فشل التقسيم: ",
-
-        // Download Modal
-        modalTitle: "تحميل البرنامج المستقل",
-        modalSubtitle: "شغّل مُقسِّم الكتب محلياً على جهازك أو انشره على خادمك الخاص",
-        platformWinDesc: "برنامج تشغيل تنفيذي لنظام ويندوز مع واجهة ويب رسومية مدمجة وسطر أوامر",
-        platformLinuxDesc: "لخوادم لينكس Ubuntu و Debian و CentOS و AlmaLinux مع دعم systemd",
-        platformMacDesc: "حزمة شاملة لأجهزة ماك بنظامي Apple Silicon و Intel",
-        badgeComingSoon: "قريباً",
-        btnDownload: "تحميل",
-        btnClose: "إغلاق"
-      }
-    };
-
-    // Current active language (persisted in localStorage, defaults to Arabic 'ar')
-    let currentLang = localStorage.getItem('book_splitter_lang') || 'ar';
-
-    /**
-     * Translates a given key with optional dynamic arguments
-     */
-    function t(key, ...args) {
-      const dict = i18n[currentLang] || i18n['ar'] || i18n['en'];
-      const val = dict[key] !== undefined ? dict[key] : ((i18n['ar'] && i18n['ar'][key]) || (i18n['en'] && i18n['en'][key]) || key);
-      if (typeof val === 'function') {
-        return val(...args);
-      }
-      return val;
-    }
-
-    /**
-     * Applies translations to all data-i18n elements and adjusts RTL layout
-     */
-    function setLanguage(lang) {
-      if (lang !== 'en' && lang !== 'ar') lang = 'ar';
-      currentLang = lang;
-      try {
-        localStorage.setItem('book_splitter_lang', lang);
-      } catch (_) {}
-
-      // Update document direction and language attributes
-      document.documentElement.lang = lang;
-      document.documentElement.dir = (lang === 'ar') ? 'rtl' : 'ltr';
-      document.title = (lang === 'ar')
-        ? 'مُقسِّم الكتب — أداة تقسيم ملفات PDF'
-        : 'Pdf Splitter — PDF Chapter & Range Splitter';
-
-      // Update switcher active indicator
-      langEnBtn.classList.toggle('active', lang === 'en');
-      langArBtn.classList.toggle('active', lang === 'ar');
-
-      // Update text content of static elements
-      document.querySelectorAll('[data-i18n]').forEach(el => {
-        const key = el.getAttribute('data-i18n');
-        el.textContent = t(key);
-      });
-
-      // Update placeholders
-      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-        const key = el.getAttribute('data-i18n-placeholder');
-        el.placeholder = t(key);
-      });
-
-      // Update element titles / tooltips
-      document.querySelectorAll('[data-i18n-title]').forEach(el => {
-        const key = el.getAttribute('data-i18n-title');
-        el.title = t(key);
-      });
-
-      // Re-render dynamic elements
-      if (currentBook) {
-        bookPagesBadge.textContent = t('bookPagesBadge', currentBook.total_pages);
-      }
-      renderSplitPoints();
-      updatePartsCalculation();
-
-      if (lastSplitData) {
-        statusText.textContent = t('statusSuccess', lastSplitData.parts.length);
-        const retMinutes = lastSplitData.retention_minutes || 30;
-        retentionText.textContent = t('retentionNotice', retMinutes);
-        if (lastSplitData.zip_download_url) {
-          const mb = lastSplitData.zip_size ? (lastSplitData.zip_size / (1024 * 1024)).toFixed(1) : '0';
-          downloadZipBtn.innerHTML = t('btnDownloadZip', mb);
-        }
-        renderResultsTable(lastSplitData.parts);
-      }
-    }
-
-    langEnBtn.addEventListener('click', () => setLanguage('en'));
-    langArBtn.addEventListener('click', () => setLanguage('ar'));
-
-    // ============================================================================
-    // APPLICATION DOWNLOADS MODAL CONTROLS
-    // ============================================================================
-    function openModal() {
-      appModalBackdrop.style.display = 'flex';
-      document.body.style.overflow = 'hidden';
-    }
-
-    function closeModal() {
-      appModalBackdrop.style.display = 'none';
-      document.body.style.overflow = '';
-    }
-
-    openAppModalBtn.addEventListener('click', openModal);
-    closeAppModalBtn.addEventListener('click', closeModal);
-    modalDismissBtn.addEventListener('click', closeModal);
-
-    appModalBackdrop.addEventListener('click', (e) => {
-      if (e.target === appModalBackdrop) {
-        closeModal();
-      }
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && appModalBackdrop.style.display === 'flex') {
-        closeModal();
-      }
-    });
-
-    // ============================================================================
-    // STANDALONE LIFECYCLE & IMMEDIATE CLEANUP MANAGEMENT
-    // ============================================================================
-    let isStandaloneMode = false;
-    let heartbeatTimer = null;
-    let cachedServerConfig = null;
-
-    async function loadServerConfig() {
-      try {
-        const res = await fetch('/api/config');
-        if (res.ok) {
-          cachedServerConfig = await res.json();
-          isStandaloneMode = !!cachedServerConfig.standalone;
-          if (isStandaloneMode) {
-            startHeartbeat();
-          }
-          return cachedServerConfig;
-        }
-      } catch (e) {
-        console.warn('Failed to load server config:', e);
-      }
-      return null;
-    }
-
-    function startHeartbeat() {
-      if (!isStandaloneMode) return;
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      const ping = () => {
-        fetch('/api/heartbeat', { method: 'POST', keepalive: true }).catch(() => {});
-      };
-      ping();
-      heartbeatTimer = setInterval(ping, 2500);
-    }
-
-    /**
-     * Purges session files from server and S3 immediately
-     */
-    function purgeSessionOnServer(sessionId) {
-      if (!sessionId) return;
-      const payload = JSON.stringify({ session_id: sessionId });
-      if (navigator.sendBeacon) {
-        const blob = new Blob([payload], { type: 'application/json' });
-        navigator.sendBeacon('/api/clear', blob);
-      } else {
-        fetch('/api/clear', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: payload,
-          keepalive: true
-        }).catch(() => {});
-      }
-    }
-
-    /**
-     * Handles page termination / browser closure:
-     * - Deletes the session data immediately.
-     * - If running standalone locally, destroys the server process as well.
-     */
-    function handlePageTermination() {
-      if (currentSessionId) {
-        purgeSessionOnServer(currentSessionId);
-      }
-      if (isStandaloneMode) {
-        const payload = JSON.stringify({ session_id: currentSessionId || '' });
-        if (navigator.sendBeacon) {
-          const blob = new Blob([payload], { type: 'application/json' });
-          navigator.sendBeacon('/api/shutdown', blob);
-        } else {
-          fetch('/api/shutdown', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: payload,
-            keepalive: true
-          }).catch(() => {});
-        }
-      }
-    }
-
-    // Page closure / unload hooks
-    window.addEventListener('beforeunload', handlePageTermination);
-    window.addEventListener('pagehide', handlePageTermination);
-
-    // Clear Book Button Handler
-    clearBookBtn.addEventListener('click', () => {
-      if (!currentBook) return;
-      if (confirm(t('confirmClearBook'))) {
-        if (currentSessionId) {
-          purgeSessionOnServer(currentSessionId);
-          currentSessionId = "";
-        }
-        currentBook = null;
-        currentFile = null;
-        splitPoints = [];
-        fileInput.value = '';
-
-        uploadProgress.style.display = 'none';
-        uploadProgress.classList.remove('active');
-        bookInfo.classList.remove('active');
-        splitSection.classList.remove('active');
-        resultsCard.style.display = 'none';
-
-        renderSplitPoints();
-        updatePartsCalculation();
-      }
-    });
-
-    // ============================================================================
-    // UPLOAD PROGRESS & REAL-TIME TRACKING
-    // ============================================================================
-    function showUploadProgress(fileName, fileSize) {
-      progressFileName.textContent = fileName;
-      progressStatusText.textContent = t('uploadingPdf');
-      progressPercentBadge.textContent = '0%';
-      progressBarFill.style.width = '0%';
-      const mbTotal = (fileSize / (1024 * 1024)).toFixed(1);
-      progressBytesText.textContent = `0.0 MB / ${mbTotal} MB`;
-      progressStorageText.textContent = '';
-      uploadProgress.style.display = 'block';
-      uploadProgress.classList.add('active');
-    }
-
-    function updateProgressMetrics(loaded, total, percent, statusStr, storageStr) {
-      const pct = Math.min(100, Math.max(0, percent));
-      progressBarFill.style.width = `${pct}%`;
-      progressPercentBadge.textContent = `${pct}%`;
-      const mbLoaded = (loaded / (1024 * 1024)).toFixed(1);
-      const mbTotal = (total / (1024 * 1024)).toFixed(1);
-      progressBytesText.textContent = `${mbLoaded} MB / ${mbTotal} MB`;
-      if (statusStr) progressStatusText.textContent = statusStr;
-      if (storageStr) progressStorageText.textContent = storageStr;
-    }
-
-    function setUploadStatus(statusStr, percent, storageStr) {
-      if (statusStr) progressStatusText.textContent = statusStr;
-      if (percent !== undefined) {
-        progressBarFill.style.width = `${percent}%`;
-        progressPercentBadge.textContent = `${percent}%`;
-      }
-      if (storageStr) progressStorageText.textContent = storageStr;
-    }
-
-    function handleUploadError(errMsg) {
-      uploadProgress.style.display = 'none';
-      uploadProgress.classList.remove('active');
-      alert(t('uploadFailed') + errMsg);
-    }
-
-    function onInspectionSuccess(data) {
-      currentBook = data;
-      currentSessionId = data.session_id || "";
-
-      // Hide progress indicator and reveal book metadata
-      uploadProgress.style.display = 'none';
-      uploadProgress.classList.remove('active');
-
-      bookName.textContent = data.file_name;
-      bookSize.textContent = (data.file_size / (1024 * 1024)).toFixed(2) + ' MB';
-      bookPagesBadge.textContent = t('bookPagesBadge', data.total_pages);
-
-      bookInfo.classList.add('active');
-      splitSection.classList.add('active');
-      resultsCard.style.display = 'none';
-
-      // Discard any split points exceeding page count of new book
-      splitPoints = splitPoints.filter(p => p < currentBook.total_pages);
-      renderSplitPoints();
-      updatePartsCalculation();
-    }
-
-    // ============================================================================
-    // S3 & LOCAL STORAGE UPLOAD DISPATCHER
-    // ============================================================================
-    async function checkS3Config() {
-      if (cachedServerConfig) {
-        return !!cachedServerConfig.s3_enabled;
-      }
-      const cfg = await loadServerConfig();
-      return !!(cfg && cfg.s3_enabled);
-    }
-
-    async function handleFileSelect(file) {
-      if (!file.name.toLowerCase().endsWith('.pdf')) {
-        alert(t('invalidPdf'));
-        return;
-      }
-
-      // If an existing session was loaded, purge it immediately on server
-      if (currentSessionId) {
-        purgeSessionOnServer(currentSessionId);
-        currentSessionId = "";
-      }
-
-      currentFile = file;
-
-      // Reset visible cards
-      bookInfo.classList.remove('active');
-      splitSection.classList.remove('active');
-      resultsCard.style.display = 'none';
-
-      // Launch progress tracker
-      showUploadProgress(file.name, file.size);
-
-      // Check S3 availability
-      const isS3 = await checkS3Config();
-
-      if (isS3) {
-        uploadDirectToS3(file);
-      } else {
-        uploadDirectToLocal(file);
-      }
-    }
-
-    /**
-     * Upload directly to S3 via presigned PUT URL with real-time XHR progress
-     */
-    async function uploadDirectToS3(file) {
-      setUploadStatus(t('requestingPresign'), 5, t('storageS3'));
-
-      try {
-        const presignRes = await fetch('/api/s3/presign', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            filename: file.name,
-            file_size: file.size,
-            content_type: file.type || 'application/pdf'
-          })
-        });
-
-        if (!presignRes.ok) {
-          console.warn('S3 presign returned error, gracefully falling back to local inspect endpoint');
-          return uploadDirectToLocal(file);
-        }
-
-        const presignData = await presignRes.json();
-        const uploadUrl = presignData.upload_url || presignData.url;
-        const s3Key = presignData.key || presignData.s3_key;
-        const sessionId = presignData.session_id || '';
-
-        if (!uploadUrl || !s3Key) {
-          console.warn('Incomplete presign response, falling back to local inspect');
-          return uploadDirectToLocal(file);
-        }
-
-        // Real-time direct S3 upload via XHR PUT
-        setUploadStatus(t('uploadingDirectS3'), 10, t('storageS3'));
-
-        const xhr = new XMLHttpRequest();
-        currentXhr = xhr;
-
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            updateProgressMetrics(e.loaded, e.total, pct, t('uploadingDirectS3'), t('storageS3'));
-          }
-        };
-
-        xhr.onload = async () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            // S3 upload finished; now notify server inspect endpoint
-            setUploadStatus(t('inspectingPdf'), 100, t('storageS3'));
-            try {
-              const inspectFormData = new FormData();
-              inspectFormData.append('s3_key', s3Key);
-              inspectFormData.append('file_name', file.name);
-              inspectFormData.append('file_size', file.size.toString());
-              if (sessionId) inspectFormData.append('session_id', sessionId);
-
-              const inspectRes = await fetch('/api/inspect', {
-                method: 'POST',
-                body: inspectFormData
-              });
-
-              const inspectData = await inspectRes.json();
-              if (inspectData.error) {
-                handleUploadError(inspectData.error);
-                return;
-              }
-              onInspectionSuccess(inspectData);
-            } catch (err) {
-              handleUploadError(err.message);
-            }
-          } else {
-            console.warn(`S3 PUT failed with HTTP ${xhr.status}, falling back to local inspect`);
-            uploadDirectToLocal(file);
-          }
-        };
-
-        xhr.onerror = () => {
-          console.warn('S3 upload network error, falling back to local inspect');
-          uploadDirectToLocal(file);
-        };
-
-        xhr.open('PUT', uploadUrl, true);
-        xhr.setRequestHeader('Content-Type', file.type || 'application/pdf');
-        xhr.send(file);
-
-      } catch (err) {
-        console.warn('Error during S3 workflow:', err);
-        uploadDirectToLocal(file);
-      }
-    }
-
-    /**
-     * Upload directly to server storage with real-time XHR progress
-     */
-    function uploadDirectToLocal(file) {
-      setUploadStatus(t('uploadingPdf'), 5, t('storageLocal'));
-
-      const xhr = new XMLHttpRequest();
-      currentXhr = xhr;
-
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          updateProgressMetrics(e.loaded, e.total, pct, t('uploadingPdf'), t('storageLocal'));
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const inspectData = JSON.parse(xhr.responseText);
-            if (inspectData.error) {
-              handleUploadError(inspectData.error);
-              return;
-            }
-            setUploadStatus(t('uploadComplete'), 100, t('storageLocal'));
-            setTimeout(() => {
-              onInspectionSuccess(inspectData);
-            }, 300);
-          } catch (e) {
-            handleUploadError('Invalid JSON response: ' + e.message);
-          }
-        } else {
-          let errMsg = `Server returned status ${xhr.status}`;
-          try {
-            const data = JSON.parse(xhr.responseText);
-            if (data.error) errMsg = data.error;
-          } catch (_) {}
-          handleUploadError(errMsg);
-        }
-      };
-
-      xhr.onerror = () => {
-        handleUploadError(t('networkError'));
-      };
-
-      const formData = new FormData();
-      formData.append('file', file);
-      xhr.open('POST', '/api/inspect', true);
-      xhr.send(formData);
-    }
-
-    // Drag & Drop Handlers
-    dropzone.addEventListener('click', () => fileInput.click());
-    dropzone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropzone.classList.add('dragover');
-    });
-    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
-    dropzone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropzone.classList.remove('dragover');
-      if (e.dataTransfer.files.length > 0) {
-        handleFileSelect(e.dataTransfer.files[0]);
-      }
-    });
-
-    fileInput.addEventListener('change', (e) => {
-      if (e.target.files.length > 0) {
-        handleFileSelect(e.target.files[0]);
-      }
-    });
-
-    // ============================================================================
-    // SPLIT POINTS & COMMA-SEPARATED INPUT PARSER
-    // ============================================================================
-    function addPointsFromInput(inputStr) {
-      if (!inputStr || !inputStr.trim()) return;
-
-      // Supports comma (both English ',' and Arabic '،') and whitespace separation
-      const tokens = inputStr.split(/[,،\s]+/).filter(t => t.trim().length > 0);
-      let addedCount = 0;
-      let warnings = [];
-
-      for (const token of tokens) {
-        const num = parseInt(token, 10);
-        if (isNaN(num) || num <= 0) {
-          warnings.push(t('errorNotValidPositive', token));
-          continue;
-        }
-        if (currentBook && num >= currentBook.total_pages) {
-          warnings.push(t('errorPageMustBeLess', num, currentBook.total_pages));
-          continue;
-        }
-        if (!splitPoints.includes(num)) {
-          splitPoints.push(num);
-          addedCount++;
-        }
-      }
-
-      splitPoints.sort((a, b) => a - b);
-      renderSplitPoints();
-      updatePartsCalculation();
-
-      if (warnings.length > 0) {
-        alert(warnings.join('\n'));
-      }
-
-      splitInput.value = '';
-      splitInput.focus();
-    }
-
-    addPointBtn.addEventListener('click', () => addPointsFromInput(splitInput.value));
-    splitInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        addPointsFromInput(splitInput.value);
-      }
-    });
-
-    presetExampleBtn.addEventListener('click', () => {
-      const example = [10, 20, 40];
-      splitPoints = example.filter(p => !currentBook || p < currentBook.total_pages);
-      renderSplitPoints();
-      updatePartsCalculation();
-    });
-
-    clearPointsBtn.addEventListener('click', () => {
-      splitPoints = [];
-      renderSplitPoints();
-      updatePartsCalculation();
-    });
-
-    function renderSplitPoints() {
-      chipsContainer.innerHTML = '';
-      if (splitPoints.length === 0) {
-        chipsContainer.innerHTML = `<span style="color: var(--text-muted); font-size: 13px;">${t('noPointsYet')}</span>`;
-        return;
-      }
-
-      splitPoints.forEach(p => {
-        const chip = document.createElement('div');
-        chip.className = 'chip';
-        chip.innerHTML = `<span>${t('chipPage', p)}</span><span class="chip-remove" onclick="removePoint(${p})" title="${t('chipRemoveTitle')}">&times;</span>`;
-        chipsContainer.appendChild(chip);
-      });
-    }
-
-    window.removePoint = function(p) {
-      splitPoints = splitPoints.filter(x => x !== p);
-      renderSplitPoints();
-      updatePartsCalculation();
-    };
-
-    // ============================================================================
-    // CALCULATED DIVISIONS & CRISP AMBER REMAINDER CARD
-    // ============================================================================
-    function updatePartsCalculation() {
-      if (!currentBook) return;
-
-      const total = currentBook.total_pages;
-      partsList.innerHTML = '';
-
-      let start = 1;
-      let partIdx = 1;
-
-      splitPoints.forEach(pt => {
-        if (pt >= start) {
-          const count = pt - start + 1;
-          const card = document.createElement('div');
-          card.className = 'part-card';
-          card.innerHTML = `
-            <div class="part-title">
-              <span class="badge" style="background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe;">${t('partBadge', partIdx)}</span>
-              <span>${t('partRange', start, pt)}</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span class="part-range">${t('partPagesCount', count)}</span>
-              <span class="part-count-badge">${t('partPagesBadge', count)}</span>
-            </div>
-          `;
-          partsList.appendChild(card);
-          start = pt + 1;
-          partIdx++;
-        }
-      });
-
-      // Sharp rectangular amber remaining cell (Strictly no rounded corners)
-      if (start <= total) {
-        const restCount = total - start + 1;
-        const restCard = document.createElement('div');
-        restCard.className = 'part-card is-rest';
-        restCard.innerHTML = `
-          <div class="part-title">
-            <span class="badge" style="background: #fef3c7; color: #b45309; border-color: #fde68a;">${t('restPartBadge', partIdx)}</span>
-            <span style="font-weight: 700;">${t('restPartRange', start, total)}</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <span class="part-range" style="color: #92400e; font-weight: 600;">${t('restRemainingPages', restCount)}</span>
-            <span class="part-count-badge rest">${t('partPagesBadge', restCount)}</span>
-          </div>
-        `;
-        partsList.appendChild(restCard);
-      }
-    }
-
-    // ============================================================================
-    // EXECUTE SPLIT & PACKAGE OPERATION
-    // ============================================================================
-    splitNowBtn.addEventListener('click', async () => {
-      if (!currentBook || (!currentFile && !currentSessionId)) {
-        alert(t('errorSelectBookFirst'));
-        return;
-      }
-
-      splitNowBtn.disabled = true;
-      splitSpinner.style.display = 'inline-block';
-      splitNowBtn.textContent = t('btnSplitting');
-
-      const formData = new FormData();
-      if (currentSessionId) {
-        formData.append('session_id', currentSessionId);
-      } else if (currentFile) {
-        formData.append('file', currentFile);
-      }
-      formData.append('split_points', splitPoints.join(','));
-
-      try {
-        const res = await fetch('/api/split', {
-          method: 'POST',
-          body: formData
-        });
-        const data = await res.json();
-
-        splitNowBtn.disabled = false;
-        splitSpinner.style.display = 'none';
-        splitNowBtn.textContent = t('btnSplit');
-
-        if (data.error) {
-          resultsCard.style.display = 'block';
-          statusBox.className = 'status-box error active';
-          statusText.textContent = t('splitFailed') + data.error;
-          downloadZipBtn.style.display = 'none';
-          openFolderBtn.style.display = 'none';
-          return;
-        }
-
-        lastOutputDir = data.output_dir || "";
-        lastSplitData = data;
-
-        resultsCard.style.display = 'block';
-        statusBox.className = 'status-box success active';
-        statusText.textContent = t('statusSuccess', data.parts.length);
-
-        // Update retention notice
-        const retMinutes = data.retention_minutes || 30;
-        retentionText.textContent = t('retentionNotice', retMinutes);
-
-        // Configure ZIP Download Button
-        if (data.zip_download_url) {
-          downloadZipBtn.href = data.zip_download_url;
-          const mb = data.zip_size ? (data.zip_size / (1024 * 1024)).toFixed(1) : '0';
-          downloadZipBtn.innerHTML = t('btnDownloadZip', mb);
-          downloadZipBtn.style.display = 'inline-flex';
-        } else {
-          downloadZipBtn.style.display = 'none';
-        }
-
-        // Show folder button if local environment
-        if (data.output_dir) {
-          openFolderBtn.style.display = 'inline-flex';
-        } else {
-          openFolderBtn.style.display = 'none';
-        }
-
-        renderResultsTable(data.parts);
-
-      } catch (err) {
-        splitNowBtn.disabled = false;
-        splitSpinner.style.display = 'none';
-        splitNowBtn.textContent = t('btnSplit');
-        alert(t('splitFailed') + err.message);
-      }
-    });
-
-    function escapeHTML(str) {
-      if (!str) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-    }
-
-    function renderResultsTable(parts) {
-      resultsTableBody.innerHTML = '';
-      if (!parts) return;
-      parts.forEach(p => {
-        const row = document.createElement('tr');
-        const sizeKb = p.file_size ? (p.file_size / 1024).toFixed(0) + ' KB' : '-';
-        const restSuffix = p.is_rest ? t('tablePartRest') : '';
-        const safeFileName = escapeHTML(p.file_name);
-        const safeDownloadURL = escapeHTML(p.download_url);
-        row.innerHTML = `
-          <td><strong>${t('partBadge', p.part_number)}${restSuffix}</strong></td>
-          <td><code style="color: #2563eb; font-weight: 600;">${safeFileName}</code></td>
-          <td>${p.start_page} &ndash; ${p.end_page}</td>
-          <td><span class="badge">${t('tablePagesCount', p.page_count)}</span></td>
-          <td>${sizeKb}</td>
-          <td>
-            <a href="${safeDownloadURL}" class="btn btn-secondary" style="padding: 5px 14px; font-size: 12px;" download>
-              ${t('btnDownloadPart')}
-            </a>
-          </td>
-        `;
-        resultsTableBody.appendChild(row);
-      });
-    }
-
-    // Open Output Folder (for local runs)
-    openFolderBtn.addEventListener('click', async () => {
-      if (!lastOutputDir) return;
-      try {
-        await fetch('/api/open-folder', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ folder: lastOutputDir })
-        });
-      } catch (err) {
-        console.error('Failed to open output folder:', err);
-      }
-    });
-
-    // Initialize Language from preference
-    setLanguage(currentLang);
-
-    // Load server config and activate heartbeat if running standalone
-    loadServerConfig();
-  </script>
+  <script src="/assets/i18n.js" defer></script>
+  <script src="/assets/app.js" defer></script>
 </body>
 </html>

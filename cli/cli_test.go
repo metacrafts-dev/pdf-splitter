@@ -1,7 +1,8 @@
 package cli
 
 import (
-	"os"
+	"bytes"
+	"context"
 	"reflect"
 	"testing"
 )
@@ -48,20 +49,52 @@ func TestParsePoints(t *testing.T) {
 	}
 }
 
-func TestEnvDefaults(t *testing.T) {
-	// Verify environment variables are recognized
-	origPort := os.Getenv("PORT")
-	origHost := os.Getenv("HOST")
-	defer func() {
-		os.Setenv("PORT", origPort)
-		os.Setenv("HOST", origHost)
-	}()
+func TestParseCLIOptionsAndEnvDefaults(t *testing.T) {
+	t.Setenv("PORT", "9999")
+	t.Setenv("HOST", "0.0.0.0")
+	t.Setenv("RETENTION", "45m")
+	t.Setenv("MAX_UPLOAD_MB", "250")
+	t.Setenv("HEADLESS", "true")
 
-	os.Setenv("PORT", "9999")
-	os.Setenv("HOST", "127.0.0.1")
+	var errBuf bytes.Buffer
+	opts, err := parseCLIOptions([]string{"-server"}, &errBuf)
+	if err != nil {
+		t.Fatalf("parseCLIOptions failed: %v", err)
+	}
+	if opts.portFlag != 9999 {
+		t.Errorf("expected port 9999 from env, got %d", opts.portFlag)
+	}
+	if opts.hostFlag != "0.0.0.0" || !opts.hostExplicit {
+		t.Errorf("expected host 0.0.0.0 (explicit=true) from env, got %q (explicit=%v)", opts.hostFlag, opts.hostExplicit)
+	}
+	if opts.retentionFlag != "45m" {
+		t.Errorf("expected retention 45m, got %q", opts.retentionFlag)
+	}
+	if opts.maxUploadMBFlag != 250 {
+		t.Errorf("expected maxUploadMB 250, got %d", opts.maxUploadMBFlag)
+	}
+	if !opts.headlessFlag {
+		t.Errorf("expected headless true from env")
+	}
+}
 
-	// Verify env vars can be read properly
-	if os.Getenv("PORT") != "9999" || os.Getenv("HOST") != "127.0.0.1" {
-		t.Errorf("Failed to read test environment variables")
+func TestParseCLIOptionsBooleanFlagWithExplicitValue(t *testing.T) {
+	t.Setenv("HEADLESS", "true")
+	var errBuf bytes.Buffer
+	opts, err := parseCLIOptions([]string{"-server", "-headless", "false"}, &errBuf)
+	if err != nil {
+		t.Fatalf("parseCLIOptions failed: %v", err)
+	}
+	if opts.headlessFlag {
+		t.Errorf("expected -headless false to disable headless")
+	}
+	if len(opts.positional) != 0 {
+		t.Errorf("expected no positional args, got %v", opts.positional)
+	}
+}
+
+func TestRunHelp(t *testing.T) {
+	if err := Run(context.Background(), []string{"-help"}); err != nil {
+		t.Fatalf("Run(-help) failed: %v", err)
 	}
 }

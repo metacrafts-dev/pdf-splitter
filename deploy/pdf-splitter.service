@@ -1,0 +1,51 @@
+[Unit]
+Description=PDF Splitter Web Service - PDF Chapter & Range Splitter
+Documentation=file:///opt/pdf-splitter/README.md
+After=network.target network-online.target
+Wants=network-online.target
+# Restart rate-limiting MUST live in [Unit] (ignored by systemd if placed in [Service])
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pdfsplitter
+Group=pdfsplitter
+WorkingDirectory=/opt/pdf-splitter
+
+# Environment configuration ('-' makes .env optional so defaults still apply; remove '-' to fail fast if missing)
+EnvironmentFile=-/opt/pdf-splitter/.env
+ExecStart=/opt/pdf-splitter/pdf-splitter-linux-amd64 -server
+
+# Process management and graceful shutdown (matches 30s Go drain timeout)
+Restart=always
+RestartSec=5s
+TimeoutStopSec=35s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pdf-splitter
+
+# Resource limits
+LimitNOFILE=65535
+
+# Security Hardening & Sandboxing
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pdf-splitter/data
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

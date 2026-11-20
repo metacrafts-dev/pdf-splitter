@@ -1,13 +1,13 @@
 // Package cleaner provides automatic TTL-based cleanup of temporary sessions,
-// uploaded PDFs, and generated split/zip files for the Pdf Splitter application.
-// It tracks session creation timestamps and purges data exceeding the retention period (15 minutes).
+// uploaded PDFs, and generated split/zip files for the PDF Splitter application.
+// It tracks session creation timestamps and purges data exceeding the retention period.
 package cleaner
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -34,7 +34,7 @@ func WriteSessionMeta(sessionDir string, sessionID string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(sessionDir, "meta.json"), data, 0644)
+	return os.WriteFile(filepath.Join(sessionDir, "meta.json"), data, 0600)
 }
 
 // ReadSessionMeta retrieves the tracked creation timestamp of a session.
@@ -53,24 +53,25 @@ func ReadSessionMeta(sessionDir string) (time.Time, bool) {
 		return meta.CreatedAt, true
 	}
 	if meta.CreatedAtUnix > 0 {
-		return time.Unix(meta.CreatedAtUnix, 0), true
+		return time.Unix(meta.CreatedAtUnix, 0).UTC(), true
 	}
 	return time.Time{}, false
 }
 
 // StartCleaner runs a background goroutine that periodically scans the given
 // base directory for session folders older than maxAge and removes them.
-// It also executes an initial check immediately upon startup.
-func StartCleaner(ctx context.Context, sessionsDir string, maxAge time.Duration, interval time.Duration) {
+// If onPurge is non-nil, it is called with each purged session ID so callers
+// can evict in-memory session state.
+func StartCleaner(ctx context.Context, sessionsDir string, maxAge time.Duration, interval time.Duration, onPurge func(sessionID string)) {
 	if maxAge <= 0 {
-		return // Retention disabled
+		return
 	}
 	if interval <= 0 {
 		interval = 1 * time.Minute
 	}
 
-	// Immediate run on startup: inspect all existing sessions to see if stale
-	cleanExpiredSessions(sessionsDir, maxAge)
+	// Immediate run on startup: inspect all existing sessions for stale leftovers.
+	cleanExpiredSessions(sessionsDir, maxAge, onPurge)
 
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -81,7 +82,7 @@ func StartCleaner(ctx context.Context, sessionsDir string, maxAge time.Duration,
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				cleanExpiredSessions(sessionsDir, maxAge)
+				cleanExpiredSessions(sessionsDir, maxAge, onPurge)
 			}
 		}
 	}()
@@ -89,14 +90,14 @@ func StartCleaner(ctx context.Context, sessionsDir string, maxAge time.Duration,
 
 // cleanExpiredSessions checks every session folder against maxAge.
 // It uses meta.json to determine when the session was created, falling back to directory ModTime.
-func cleanExpiredSessions(sessionsDir string, maxAge time.Duration) {
+func cleanExpiredSessions(sessionsDir string, maxAge time.Duration, onPurge func(sessionID string)) {
 	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
 		return
 	}
 
 	entries, err := os.ReadDir(sessionsDir)
 	if err != nil {
-		log.Printf("[CLEANER] Failed to read sessions directory %s: %v", sessionsDir, err)
+		slog.Warn("failed to read sessions directory", "dir", sessionsDir, "err", err)
 		return
 	}
 
@@ -106,9 +107,9 @@ func cleanExpiredSessions(sessionsDir string, maxAge time.Duration) {
 			continue
 		}
 
-		sessionPath := filepath.Join(sessionsDir, entry.Name())
+		sessionID := entry.Name()
+		sessionPath := filepath.Join(sessionsDir, sessionID)
 
-		// Read creation timestamp from meta.json if available
 		createdTime, ok := ReadSessionMeta(sessionPath)
 		if !ok {
 			info, err := entry.Info()
@@ -120,20 +121,19 @@ func cleanExpiredSessions(sessionsDir string, maxAge time.Duration) {
 
 		age := now.Sub(createdTime)
 		if age > maxAge {
-			log.Printf("[CLEANER] Removing expired session %s (created %v ago > retention %v)", entry.Name(), age.Round(time.Second), maxAge)
 			if err := os.RemoveAll(sessionPath); err != nil {
-				log.Printf("[CLEANER] Failed to delete session %s: %v", sessionPath, err)
-			} else {
-				log.Printf("[CLEANER] Successfully purged expired session %s", entry.Name())
+				slog.Warn("failed to delete expired session", "session_id", sessionID, "err", err)
+				continue
 			}
-		} else {
-			remaining := maxAge - age
-			log.Printf("[CLEANER] Session %s is within retention (age: %v, remaining: %v)", entry.Name(), age.Round(time.Second), remaining.Round(time.Second))
+			if onPurge != nil {
+				onPurge(sessionID)
+			}
+			slog.Info("purged expired session", "session_id", sessionID, "age", age.Round(time.Second), "retention", maxAge)
 		}
 	}
 }
 
-// CleanDirRemover deletes a specific path and logs any failure.
+// CleanDirRemover deletes a specific path and wraps any failure.
 func CleanDirRemover(path string) error {
 	if path == "" {
 		return nil
@@ -144,10 +144,26 @@ func CleanDirRemover(path string) error {
 	return nil
 }
 
-// PurgeAllSessions immediately wipes all session directories under sessionsDir.
+// PurgeAllSessions immediately wipes all session entries inside sessionsDir
+// while preserving sessionsDir itself (important under systemd ProtectSystem=strict).
 func PurgeAllSessions(sessionsDir string) error {
-	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
-		return nil
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
 	}
-	return os.RemoveAll(sessionsDir)
+
+	var firstErr error
+	for _, entry := range entries {
+		if entry.Name() == ".gitkeep" {
+			continue
+		}
+		target := filepath.Join(sessionsDir, entry.Name())
+		if err := os.RemoveAll(target); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }

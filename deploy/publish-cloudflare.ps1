@@ -1,5 +1,7 @@
-﻿# ==============================================================================
-# Pdf Splitter — Cloudflare Subdomain Publishing & Tunnel Script (PowerShell)
+# ==============================================================================
+# PDF Splitter — Cloudflare Subdomain Publishing & Tunnel Script (PowerShell)
+# NOTE: Cloudflare Free/Pro plans enforce a 100 MB HTTP body limit.
+# Configure S3/R2 in .env if users need to upload PDFs larger than 100 MB.
 # ==============================================================================
 [CmdletBinding()]
 param(
@@ -10,16 +12,15 @@ param(
     [int]$Port = 8080,
 
     [Parameter()]
-    [string]$TunnelName = "pdf-plitter"
+    [string]$TunnelName = "pdf-splitter"
 )
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "`n=== Pdf Splitter — Cloudflare Subdomain Publisher ===" -ForegroundColor Cyan
+Write-Host "`n=== PDF Splitter — Cloudflare Subdomain Publisher ===" -ForegroundColor Cyan
 
-# 1. Prompt for Subdomain if not provided
 if (-not $Subdomain) {
-    $Subdomain = Read-Host "Enter the Cloudflare subdomain to publish Pdf Splitter under (e.g. split.yourdomain.com)"
+    $Subdomain = Read-Host "Enter the Cloudflare subdomain (e.g. split.yourdomain.com)"
 }
 
 $Subdomain = $Subdomain.Trim().ToLower()
@@ -30,34 +31,25 @@ if (-not $Subdomain) {
 
 Write-Host "Target Subdomain: $Subdomain" -ForegroundColor Green
 Write-Host "Local Target:     http://127.0.0.1:$Port" -ForegroundColor Green
+Write-Host "[NOTE] Cloudflare Free/Pro enforces a 100 MB HTTP upload limit unless S3/R2 direct upload is enabled." -ForegroundColor Yellow
 
-# 2. Check cloudflared CLI
 $cfCmd = Get-Command "cloudflared" -ErrorAction SilentlyContinue
 if (-not $cfCmd) {
-    Write-Host "[WARN] cloudflared CLI not found in PATH." -ForegroundColor Yellow
-    Write-Host "Please download cloudflared for Windows from:" -ForegroundColor Yellow
-    Write-Host "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -ForegroundColor Yellow
-    Write-Host "Or install via winget / scoop:" -ForegroundColor Yellow
-    Write-Host "  winget install --id Cloudflare.cloudflared" -ForegroundColor Yellow
+    Write-Host "[WARN] cloudflared CLI not found in PATH. Install via: winget install --id Cloudflare.cloudflared" -ForegroundColor Yellow
     exit 1
 }
 
-# 3. Check login
 $certPath = Join-Path $env:USERPROFILE ".cloudflared\cert.pem"
 if (-not (Test-Path $certPath)) {
-    Write-Host "No Cloudflare certificate found at $certPath. Running login..." -ForegroundColor Yellow
     & cloudflared tunnel login
 }
 
-# 4. Create or reuse tunnel
-Write-Host "Checking tunnel '$TunnelName'..." -ForegroundColor Cyan
 $tunnels = & cloudflared tunnel list
 $tunnelId = ""
 if ($tunnels -match "(?<id>[a-f0-9-]{36})\s+$TunnelName") {
     $tunnelId = $Matches['id']
     Write-Host "Using existing tunnel ID: $tunnelId" -ForegroundColor Green
 } else {
-    Write-Host "Creating new tunnel '$TunnelName'..." -ForegroundColor Cyan
     $createOut = & cloudflared tunnel create $TunnelName 2>&1
     if ($createOut -match "(?<id>[a-f0-9-]{36})") {
         $tunnelId = $Matches['id']
@@ -69,13 +61,10 @@ if (-not $tunnelId) {
     exit 1
 }
 
-# 5. Route DNS
-Write-Host "Routing DNS: $Subdomain -> $TunnelName..." -ForegroundColor Cyan
 & cloudflared tunnel route dns -f $TunnelName $Subdomain
 
-# 6. Write config
 $configDir = Join-Path $env:USERPROFILE ".cloudflared"
-$configFile = Join-Path $configDir "config.yml"
+$configFile = Join-Path $configDir "$TunnelName.yml"
 $credFile = Join-Path $configDir "$tunnelId.json"
 
 $configContent = @"
@@ -90,7 +79,5 @@ ingress:
 
 Set-Content -Path $configFile -Value $configContent
 Write-Host "Configuration written to $configFile" -ForegroundColor Green
-
-Write-Host "`nTo start the tunnel run:" -ForegroundColor Cyan
-Write-Host "  cloudflared tunnel run $TunnelName" -ForegroundColor Yellow
-Write-Host "`nPublic URL: https://$Subdomain" -ForegroundColor Green
+Write-Host "`nRun: cloudflared --config `"$configFile`" tunnel run $TunnelName" -ForegroundColor Yellow
+Write-Host "Public URL: https://$Subdomain" -ForegroundColor Green
