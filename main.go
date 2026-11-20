@@ -1,21 +1,27 @@
-// Package main is the entry point for the compiled Pdf Splitter application.
+// Package main is the entry point for the compiled PDF Splitter application.
 // It supports:
 // - Standalone CLI mode for terminal batch automation.
 // - Embedded modern Web UI for local desktop use.
-// - Full-fledged Web Server for VPS deployment with auto-cleanup and ZIP packaging.
+// - Hardened Web Server for VPS deployment with auto-cleanup and ZIP packaging.
 package main
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"pdf-plitter/cli"
+	"pdf-splitter/cli"
 )
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 

@@ -1,6 +1,6 @@
-module pdf-plitter
+module pdf-splitter
 
-go 1.27.3
+go 1.27.4
 
 require github.com/pdfcpu/pdfcpu v0.16.4
 

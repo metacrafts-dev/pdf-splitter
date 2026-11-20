@@ -1,9 +1,9 @@
 # Binaries and build artifacts
 *.exe
 *.exe~
-dist/pdf-plitter.exe
-dist/pdf-plitter-linux-amd64
-dist/pdf-plitter-darwin-*
+dist/pdf-splitter.exe
+dist/pdf-splitter-linux-amd64
+dist/pdf-splitter-darwin-*
 
 # Session data and temporary upload files
 dist/data/sessions/*
