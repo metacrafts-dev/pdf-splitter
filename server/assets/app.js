@@ -11,9 +11,17 @@
   let splitPoints = [];
   let lastSplitData = null;
   let currentXhr = null;
+  let currentUploadAbortController = null;
+  let pendingS3SessionId = "";
+  let activeUploadId = 0;
+  let uploadSuccessTimer = null;
+  let cancelNoticeTimer = null;
   let isStandaloneMode = false;
   let cachedServerConfig = null;
   let sseSource = null;
+
+  // Live upload telemetry state (EMA-smoothed speed + ETA)
+  let uploadTelemetry = null;
 
   const dropzone = document.getElementById("dropzone");
   const fileInput = document.getElementById("fileInput");
@@ -23,7 +31,11 @@
   const progressPercentBadge = document.getElementById("progressPercentBadge");
   const progressBarFill = document.getElementById("progressBarFill");
   const progressBytesText = document.getElementById("progressBytesText");
+  const progressSpeedText = document.getElementById("progressSpeedText");
+  const progressEtaText = document.getElementById("progressEtaText");
   const progressStorageText = document.getElementById("progressStorageText");
+  const cancelUploadBtn = document.getElementById("cancelUploadBtn");
+  const uploadCancelledNotice = document.getElementById("uploadCancelledNotice");
 
   const bookInfo = document.getElementById("bookInfo");
   const bookName = document.getElementById("bookName");
@@ -67,6 +79,55 @@
     return typeof val === "function" ? val(...args) : val;
   }
 
+  function formatSpeed(bytesPerSec) {
+    if (!Number.isFinite(bytesPerSec) || bytesPerSec <= 0) {
+      return "--";
+    }
+    if (bytesPerSec < 1024) {
+      return `${Math.round(bytesPerSec)} ${t("unitBytesPerSec")}`;
+    }
+    if (bytesPerSec < 1024 * 1024) {
+      return `${(bytesPerSec / 1024).toFixed(1)} ${t("unitKBPerSec")}`;
+    }
+    return `${(bytesPerSec / (1024 * 1024)).toFixed(2)} ${t("unitMBPerSec")}`;
+  }
+
+  function formatETA(seconds) {
+    if (seconds === "finishing") {
+      return t("etaFinishing");
+    }
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      return t("etaCalculating");
+    }
+    if (seconds < 1) {
+      return t("etaLessThanSec");
+    }
+    const rounded = Math.ceil(seconds);
+    if (rounded < 60) {
+      return t("etaSeconds", rounded);
+    }
+    if (rounded < 3600) {
+      const mins = Math.floor(rounded / 60);
+      const secs = rounded % 60;
+      return t("etaMinutesSeconds", mins, secs);
+    }
+    const hrs = Math.floor(rounded / 3600);
+    const mins = Math.floor((rounded % 3600) / 60);
+    return t("etaHoursMinutes", hrs, mins);
+  }
+
+  function renderUploadTelemetry() {
+    if (!uploadTelemetry) return;
+    if (uploadTelemetry.statusKey) {
+      progressStatusText.textContent = t(uploadTelemetry.statusKey);
+    }
+    if (uploadTelemetry.storageKey) {
+      progressStorageText.textContent = t(uploadTelemetry.storageKey);
+    }
+    progressSpeedText.textContent = t("speedLabel", formatSpeed(uploadTelemetry.smoothedBps));
+    progressEtaText.textContent = t("etaLabel", formatETA(uploadTelemetry.etaSeconds));
+  }
+
   function setLanguage(lang) {
     if (lang !== "en" && lang !== "ar") lang = "ar";
     currentLang = lang;
@@ -93,6 +154,9 @@
       el.title = t(el.getAttribute("data-i18n-title"));
     });
 
+    if (uploadTelemetry) {
+      renderUploadTelemetry();
+    }
     if (currentBook) {
       bookPagesBadge.textContent = t("bookPagesBadge", currentBook.total_pages);
     }
@@ -151,14 +215,10 @@
     return null;
   }
 
-  // In standalone mode, hold an SSE connection so background tab throttling and F5 reloads
-  // do not kill the local server prematurely.
   function connectStandaloneEvents() {
     if (!isStandaloneMode || sseSource) return;
     sseSource = new EventSource("/api/events");
-    sseSource.onerror = () => {
-      // EventSource automatically reconnects if the server is still up.
-    };
+    sseSource.onerror = () => {};
   }
 
   function purgeSessionOnServer(sessionId) {
@@ -180,21 +240,70 @@
     });
   }
 
-  // On VPS mode, purge active session on pagehide; in standalone mode, SSE disconnect handles shutdown.
   window.addEventListener("pagehide", () => {
-    if (!isStandaloneMode && currentSessionId) {
-      purgeSessionOnServer(currentSessionId);
+    if (!isStandaloneMode) {
+      if (currentSessionId) purgeSessionOnServer(currentSessionId);
+      if (pendingS3SessionId) purgeSessionOnServer(pendingS3SessionId);
     }
+  });
+
+  function hideCancelledNotice() {
+    if (cancelNoticeTimer) {
+      clearTimeout(cancelNoticeTimer);
+      cancelNoticeTimer = null;
+    }
+    uploadCancelledNotice.style.display = "none";
+  }
+
+  function showCancelledNotice() {
+    hideCancelledNotice();
+    uploadCancelledNotice.style.display = "block";
+    cancelNoticeTimer = setTimeout(() => {
+      uploadCancelledNotice.style.display = "none";
+      cancelNoticeTimer = null;
+    }, 4500);
+  }
+
+  function abortInFlightUpload(showNotice) {
+    activeUploadId++;
+    if (uploadSuccessTimer) {
+      clearTimeout(uploadSuccessTimer);
+      uploadSuccessTimer = null;
+    }
+    if (currentUploadAbortController) {
+      currentUploadAbortController.abort();
+      currentUploadAbortController = null;
+    }
+    if (currentXhr) {
+      const xhr = currentXhr;
+      currentXhr = null;
+      xhr.abort();
+    }
+    if (pendingS3SessionId) {
+      purgeSessionOnServer(pendingS3SessionId);
+      pendingS3SessionId = "";
+    }
+    uploadTelemetry = null;
+    uploadProgress.style.display = "none";
+    uploadProgress.classList.remove("active");
+    if (showNotice) {
+      currentFile = null;
+      fileInput.value = "";
+      showCancelledNotice();
+    }
+  }
+
+  cancelUploadBtn.addEventListener("click", () => {
+    abortInFlightUpload(true);
   });
 
   clearBookBtn.addEventListener("click", () => {
     if (!currentBook) return;
     if (!confirm(t("confirmClearBook"))) return;
 
-    if (currentXhr) {
-      currentXhr.abort();
-      currentXhr = null;
-    }
+    abortInFlightUpload(false);
+    hideCancelledNotice();
+
     if (currentSessionId) {
       purgeSessionOnServer(currentSessionId);
       currentSessionId = "";
@@ -205,8 +314,6 @@
     splitPoints = [];
     fileInput.value = "";
 
-    uploadProgress.style.display = "none";
-    uploadProgress.classList.remove("active");
     bookInfo.classList.remove("active");
     splitSection.classList.remove("active");
     resultsCard.style.display = "none";
@@ -215,45 +322,110 @@
     updatePartsCalculation();
   });
 
+  function initUploadTelemetry(totalBytes, statusKey, storageKey) {
+    const now = performance.now();
+    uploadTelemetry = {
+      startTime: now,
+      lastTime: now,
+      lastLoaded: 0,
+      totalBytes: totalBytes || 0,
+      smoothedBps: 0,
+      etaSeconds: NaN,
+      statusKey: statusKey || "uploadingPdf",
+      storageKey: storageKey || ""
+    };
+  }
+
   function showUploadProgress(fileName, fileSize) {
+    hideCancelledNotice();
+    initUploadTelemetry(fileSize, "uploadingPdf", "");
     progressFileName.textContent = fileName;
-    progressStatusText.textContent = t("uploadingPdf");
     progressPercentBadge.textContent = "0%";
     progressBarFill.style.width = "0%";
     const mbTotal = (fileSize / (1024 * 1024)).toFixed(1);
     progressBytesText.textContent = `0.0 MB / ${mbTotal} MB`;
-    progressStorageText.textContent = "";
+    renderUploadTelemetry();
     uploadProgress.style.display = "block";
     uploadProgress.classList.add("active");
   }
 
-  function updateProgressMetrics(loaded, total, percent, statusStr, storageStr) {
-    const pct = Math.min(100, Math.max(0, percent));
+  function updateProgressMetrics(loaded, total, statusKey, storageKey) {
+    if (!uploadTelemetry) return;
+
+    const now = performance.now();
+    const pct = total > 0 ? Math.min(100, Math.max(0, Math.round((loaded / total) * 100))) : 0;
     progressBarFill.style.width = `${pct}%`;
     progressPercentBadge.textContent = `${pct}%`;
+
     const mbLoaded = (loaded / (1024 * 1024)).toFixed(1);
     const mbTotal = (total / (1024 * 1024)).toFixed(1);
     progressBytesText.textContent = `${mbLoaded} MB / ${mbTotal} MB`;
-    if (statusStr) progressStatusText.textContent = statusStr;
-    if (storageStr) progressStorageText.textContent = storageStr;
+
+    const dtSec = (now - uploadTelemetry.lastTime) / 1000;
+    const totalElapsedSec = Math.max((now - uploadTelemetry.startTime) / 1000, 0.05);
+
+    if (dtSec >= 0.2 || loaded >= total) {
+      const deltaBytes = loaded - uploadTelemetry.lastLoaded;
+      if (deltaBytes > 0 && dtSec > 0) {
+        const instantBps = deltaBytes / dtSec;
+        if (uploadTelemetry.smoothedBps === 0) {
+          uploadTelemetry.smoothedBps = loaded / totalElapsedSec;
+        } else {
+          // Exponential moving average smooths bursty XHR progress events
+          uploadTelemetry.smoothedBps = 0.25 * instantBps + 0.75 * uploadTelemetry.smoothedBps;
+        }
+      } else if (uploadTelemetry.smoothedBps === 0 && loaded > 0) {
+        uploadTelemetry.smoothedBps = loaded / totalElapsedSec;
+      }
+      uploadTelemetry.lastTime = now;
+      uploadTelemetry.lastLoaded = loaded;
+    }
+
+    if (loaded >= total && total > 0) {
+      uploadTelemetry.statusKey = "inspectingPdf";
+      uploadTelemetry.etaSeconds = "finishing";
+    } else {
+      uploadTelemetry.statusKey = statusKey;
+      const remainingBytes = Math.max(0, total - loaded);
+      uploadTelemetry.etaSeconds = uploadTelemetry.smoothedBps > 0
+        ? remainingBytes / uploadTelemetry.smoothedBps
+        : NaN;
+    }
+    if (storageKey) {
+      uploadTelemetry.storageKey = storageKey;
+    }
+    renderUploadTelemetry();
   }
 
-  function setUploadStatus(statusStr, percent, storageStr) {
-    if (statusStr) progressStatusText.textContent = statusStr;
+  function setUploadStatus(statusKey, percent, storageKey, etaOverride) {
+    if (uploadTelemetry) {
+      if (statusKey) uploadTelemetry.statusKey = statusKey;
+      if (storageKey) uploadTelemetry.storageKey = storageKey;
+      if (etaOverride !== undefined) uploadTelemetry.etaSeconds = etaOverride;
+      renderUploadTelemetry();
+    } else if (statusKey) {
+      progressStatusText.textContent = t(statusKey);
+    }
     if (percent !== undefined) {
       progressBarFill.style.width = `${percent}%`;
       progressPercentBadge.textContent = `${percent}%`;
     }
-    if (storageStr) progressStorageText.textContent = storageStr;
   }
 
-  function handleUploadError(errMsg) {
+  function handleUploadError(uploadId, errMsg) {
+    if (uploadId !== activeUploadId) return;
+    uploadTelemetry = null;
+    pendingS3SessionId = "";
     uploadProgress.style.display = "none";
     uploadProgress.classList.remove("active");
+    fileInput.value = "";
     alert(t("uploadFailed") + errMsg);
   }
 
-  function onInspectionSuccess(data) {
+  function onInspectionSuccess(uploadId, data) {
+    if (uploadId !== activeUploadId) return;
+    uploadTelemetry = null;
+    pendingS3SessionId = "";
     currentBook = data;
     currentSessionId = data.session_id || "";
 
@@ -290,10 +462,8 @@
       return;
     }
 
-    if (currentXhr) {
-      currentXhr.abort();
-      currentXhr = null;
-    }
+    abortInFlightUpload(false);
+    const uploadId = activeUploadId;
 
     if (currentSessionId) {
       purgeSessionOnServer(currentSessionId);
@@ -308,14 +478,18 @@
     showUploadProgress(file.name, file.size);
 
     if (cfg && cfg.s3_enabled) {
-      uploadDirectToS3(file);
+      uploadDirectToS3(file, uploadId);
     } else {
-      uploadDirectToLocal(file);
+      uploadDirectToLocal(file, uploadId);
     }
   }
 
-  async function uploadDirectToS3(file) {
-    setUploadStatus(t("requestingPresign"), 5, t("storageS3"));
+  async function uploadDirectToS3(file, uploadId) {
+    if (uploadId !== activeUploadId) return;
+    setUploadStatus("requestingPresign", 5, "storageS3", NaN);
+
+    const abortController = new AbortController();
+    currentUploadAbortController = abortController;
 
     try {
       const presignRes = await fetch("/api/s3/presign", {
@@ -327,39 +501,53 @@
         body: JSON.stringify({
           filename: file.name,
           file_size: file.size
-        })
+        }),
+        signal: abortController.signal
       });
 
+      if (uploadId !== activeUploadId) return;
       if (!presignRes.ok) {
-        return uploadDirectToLocal(file);
+        return uploadDirectToLocal(file, uploadId);
       }
 
       const presignData = await presignRes.json();
+      if (uploadId !== activeUploadId) return;
+
       const uploadUrl = presignData.upload_url || presignData.url;
       const s3Key = presignData.key;
       const sessionId = presignData.session_id || "";
       const signedCT = presignData.content_type || "application/pdf";
 
       if (!uploadUrl || !s3Key) {
-        return uploadDirectToLocal(file);
+        return uploadDirectToLocal(file, uploadId);
       }
 
-      setUploadStatus(t("uploadingDirectS3"), 10, t("storageS3"));
+      pendingS3SessionId = sessionId;
+      initUploadTelemetry(file.size, "uploadingDirectS3", "storageS3");
+      setUploadStatus("uploadingDirectS3", 0, "storageS3", NaN);
 
       const xhr = new XMLHttpRequest();
       currentXhr = xhr;
 
       xhr.upload.onprogress = (e) => {
+        if (uploadId !== activeUploadId) return;
         if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          updateProgressMetrics(e.loaded, e.total, pct, t("uploadingDirectS3"), t("storageS3"));
+          updateProgressMetrics(e.loaded, e.total, "uploadingDirectS3", "storageS3");
         }
+      };
+
+      xhr.onabort = () => {
+        if (currentXhr === xhr) currentXhr = null;
       };
 
       xhr.onload = async () => {
         if (currentXhr === xhr) currentXhr = null;
+        if (uploadId !== activeUploadId) return;
+
         if (xhr.status >= 200 && xhr.status < 300) {
-          setUploadStatus(t("inspectingPdf"), 100, t("storageS3"));
+          setUploadStatus("inspectingPdf", 100, "storageS3", "finishing");
+          const inspectAbort = new AbortController();
+          currentUploadAbortController = inspectAbort;
           try {
             const inspectRes = await fetch("/api/inspect", {
               method: "POST",
@@ -371,61 +559,86 @@
                 session_id: sessionId,
                 s3_key: s3Key,
                 filename: file.name
-              })
+              }),
+              signal: inspectAbort.signal
             });
+            if (uploadId !== activeUploadId) return;
             const inspectData = await inspectRes.json();
             if (!inspectRes.ok || inspectData.error) {
-              handleUploadError(inspectData.error || `HTTP ${inspectRes.status}`);
+              handleUploadError(uploadId, inspectData.error || `HTTP ${inspectRes.status}`);
               return;
             }
-            onInspectionSuccess(inspectData);
+            onInspectionSuccess(uploadId, inspectData);
           } catch (err) {
-            handleUploadError(err.message);
+            if (err && err.name === "AbortError") return;
+            handleUploadError(uploadId, err.message);
           }
         } else {
-          uploadDirectToLocal(file);
+          if (pendingS3SessionId) {
+            purgeSessionOnServer(pendingS3SessionId);
+            pendingS3SessionId = "";
+          }
+          uploadDirectToLocal(file, uploadId);
         }
       };
 
       xhr.onerror = () => {
         if (currentXhr === xhr) currentXhr = null;
-        uploadDirectToLocal(file);
+        if (uploadId !== activeUploadId) return;
+        if (pendingS3SessionId) {
+          purgeSessionOnServer(pendingS3SessionId);
+          pendingS3SessionId = "";
+        }
+        uploadDirectToLocal(file, uploadId);
       };
 
       xhr.open("PUT", uploadUrl, true);
       xhr.setRequestHeader("Content-Type", signedCT);
       xhr.send(file);
-    } catch (_) {
-      uploadDirectToLocal(file);
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+      if (uploadId !== activeUploadId) return;
+      uploadDirectToLocal(file, uploadId);
     }
   }
 
-  function uploadDirectToLocal(file) {
-    setUploadStatus(t("uploadingPdf"), 5, t("storageLocal"));
+  function uploadDirectToLocal(file, uploadId) {
+    if (uploadId !== activeUploadId) return;
+    initUploadTelemetry(file.size, "uploadingPdf", "storageLocal");
+    setUploadStatus("uploadingPdf", 0, "storageLocal", NaN);
 
     const xhr = new XMLHttpRequest();
     currentXhr = xhr;
 
     xhr.upload.onprogress = (e) => {
+      if (uploadId !== activeUploadId) return;
       if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        updateProgressMetrics(e.loaded, e.total, pct, t("uploadingPdf"), t("storageLocal"));
+        updateProgressMetrics(e.loaded, e.total, "uploadingPdf", "storageLocal");
       }
+    };
+
+    xhr.onabort = () => {
+      if (currentXhr === xhr) currentXhr = null;
     };
 
     xhr.onload = () => {
       if (currentXhr === xhr) currentXhr = null;
+      if (uploadId !== activeUploadId) return;
+
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const inspectData = JSON.parse(xhr.responseText);
           if (inspectData.error) {
-            handleUploadError(inspectData.error);
+            handleUploadError(uploadId, inspectData.error);
             return;
           }
-          setUploadStatus(t("uploadComplete"), 100, t("storageLocal"));
-          setTimeout(() => onInspectionSuccess(inspectData), 200);
+          setUploadStatus("uploadComplete", 100, "storageLocal", "finishing");
+          uploadSuccessTimer = setTimeout(() => {
+            uploadSuccessTimer = null;
+            onInspectionSuccess(uploadId, inspectData);
+          }, 200);
         } catch (e) {
-          handleUploadError("Invalid server response: " + e.message);
+          handleUploadError(uploadId, "Invalid server response: " + e.message);
         }
       } else {
         let errMsg = `Server returned status ${xhr.status}`;
@@ -433,13 +646,14 @@
           const data = JSON.parse(xhr.responseText);
           if (data.error) errMsg = data.error;
         } catch (_) {}
-        handleUploadError(errMsg);
+        handleUploadError(uploadId, errMsg);
       }
     };
 
     xhr.onerror = () => {
       if (currentXhr === xhr) currentXhr = null;
-      handleUploadError(t("networkError"));
+      if (uploadId !== activeUploadId) return;
+      handleUploadError(uploadId, t("networkError"));
     };
 
     const formData = new FormData();

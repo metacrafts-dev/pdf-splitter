@@ -150,11 +150,13 @@ hr { border: 0; border-top: 1px solid var(--card-border); margin: 20px 0; }
 }
 .upload-progress.active { display: block; }
 
-.progress-info-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-.progress-file-info { display: flex; align-items: center; gap: 12px; overflow: hidden; }
+.progress-info-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+.progress-file-info { display: flex; align-items: center; gap: 12px; overflow: hidden; min-width: 0; flex: 1; }
+.progress-file-text { min-width: 0; }
 .progress-icon { width: 32px; height: 32px; stroke: var(--accent); flex-shrink: 0; }
-.progress-file-name { font-weight: 700; font-size: 14.5px; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 480px; }
+.progress-file-name { font-weight: 700; font-size: 14.5px; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 440px; }
 .progress-status-text { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+.progress-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
 .progress-percent-badge {
   background: var(--accent-light);
@@ -165,6 +167,7 @@ hr { border: 0; border-top: 1px solid var(--card-border); margin: 20px 0; }
   padding: 5px 14px;
   border-radius: var(--btn-radius);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .progress-bar-track { width: 100%; height: 12px; background: #e2e8f0; border-radius: 6px; overflow: hidden; }
@@ -181,7 +184,37 @@ hr { border: 0; border-top: 1px solid var(--card-border); margin: 20px 0; }
   0% { background-position: 0% 50%; }
   100% { background-position: 200% 50%; }
 }
-.progress-details-row { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 12.5px; color: var(--text-muted); }
+.progress-details-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.progress-telemetry {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+}
+.telemetry-sep { color: #94a3b8; }
+
+.upload-cancelled-notice {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--warning-light);
+  border: 1px solid var(--warning-border);
+  border-left: 4px solid var(--warning);
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 600;
+}
 
 .book-info {
   display: none;
@@ -420,4 +453,5 @@ hr { border: 0; border-top: 1px solid var(--card-border); margin: 20px 0; }
 [dir="rtl"] .status-box.success { border-left: 1.5px solid #a7f3d0; border-right: 6px solid var(--success); }
 [dir="rtl"] .status-box.error { border-left: 1.5px solid #fecaca; border-right: 6px solid var(--danger); }
 [dir="rtl"] .retention-alert { border-left: 1px solid #bfdbfe; border-right: 4px solid var(--accent); }
+[dir="rtl"] .upload-cancelled-notice { border-left: 1px solid var(--warning-border); border-right: 4px solid var(--warning); }
 [dir="rtl"] .modal-footer { justify-content: flex-start; }

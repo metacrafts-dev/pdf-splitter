@@ -8,7 +8,7 @@ A compiled, standalone PDF splitter built in pure Go (`CGO_ENABLED=0`) with zero
 
 ### 1. Bilingual Web UI (Arabic Default with RTL & English)
 - Starts in Arabic (`العربية`) with full RTL layout and one-click switching to English.
-- Real-time upload progress bar (live percentage and transferred MB) with automatic abort on re-selection.
+- Real-time upload progress bar with **live percentage, transferred MB, smoothed upload speed (B/s, KB/s, MB/s), estimated time remaining (ETA), and mid-upload Cancel button** (aborts in-flight XHR/fetch requests and cleans up pending S3 sessions).
 - Inclusive split-point preview showing exact page ranges and the remainder block.
 - Strict Content Security Policy (`script-src 'self'`), per-boot CSRF tokens, and zero inline scripts.
 

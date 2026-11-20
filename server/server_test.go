@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -118,6 +119,61 @@ func TestHealthzAndSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestIndexIncludesCancelAndTelemetryControls(t *testing.T) {
+	s := newTestServer(t, false, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`id="cancelUploadBtn"`, `id="progressSpeedText"`, `id="progressEtaText"`, s.CSRFToken()} {
+		if !strings.Contains(body, needle) {
+			t.Errorf("expected index HTML to contain %q", needle)
+		}
+	}
+}
+
+func TestInspectCancelledContextCleansUpSession(t *testing.T) {
+	s := newTestServer(t, false, nil)
+	pdfBytes := buildMinimalPDFBytes(3)
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", "cancel_test.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(fw, bytes.NewReader(pdfBytes)); err != nil {
+		t.Fatal(err)
+	}
+	mw.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Pre-cancelled request simulates client aborting mid-upload/inspect
+
+	req := httptest.NewRequest(http.MethodPost, "/api/inspect", &body).WithContext(ctx)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("X-CSRF-Token", s.CSRFToken())
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusOK {
+		t.Fatalf("expected cancelled inspect request to fail, got 200")
+	}
+
+	entries, err := os.ReadDir(s.cfg.SessionsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected no leftover session dirs after cancelled inspect, found %d", len(entries))
+	}
+}
+
 func TestDesktopEndpointsDisabledInVPSMode(t *testing.T) {
 	s := newTestServer(t, false, nil)
 
@@ -137,7 +193,6 @@ func TestDesktopEndpointsDisabledInVPSMode(t *testing.T) {
 func TestCSRFProtectionEnforced(t *testing.T) {
 	s := newTestServer(t, false, nil)
 
-	// Missing CSRF token
 	req := httptest.NewRequest(http.MethodPost, "/api/clear", strings.NewReader(`{"session_id":"0123456789abcdef0123456789abcdef"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -146,7 +201,6 @@ func TestCSRFProtectionEnforced(t *testing.T) {
 		t.Errorf("expected 403 without CSRF token, got %d", rec.Code)
 	}
 
-	// Cross-site Sec-Fetch-Site header even with token
 	req2 := httptest.NewRequest(http.MethodPost, "/api/clear", strings.NewReader(`{"session_id":"0123456789abcdef0123456789abcdef"}`))
 	req2.Header.Set("Content-Type", "application/json")
 	req2.Header.Set("X-CSRF-Token", s.CSRFToken())
@@ -161,7 +215,6 @@ func TestCSRFProtectionEnforced(t *testing.T) {
 func TestClearRejectsGETAndPathTraversal(t *testing.T) {
 	s := newTestServer(t, false, nil)
 
-	// GET must be rejected
 	reqGet := httptest.NewRequest(http.MethodGet, "/api/clear?session_id=0123456789abcdef0123456789abcdef&csrf_token="+s.CSRFToken(), nil)
 	recGet := httptest.NewRecorder()
 	s.Handler().ServeHTTP(recGet, reqGet)
@@ -169,7 +222,6 @@ func TestClearRejectsGETAndPathTraversal(t *testing.T) {
 		t.Errorf("expected 405 for GET /api/clear, got %d", recGet.Code)
 	}
 
-	// Traversal attempts in session_id must fail and never touch parent directory
 	sentinel := filepath.Join(filepath.Dir(s.cfg.SessionsDir), "keep_me.txt")
 	if err := os.WriteFile(sentinel, []byte("precious"), 0644); err != nil {
 		t.Fatal(err)
@@ -203,7 +255,6 @@ func TestS3PresignAndKeyAuthorization(t *testing.T) {
 	})
 	s := newTestServer(t, false, store)
 
-	// 1. Oversized presign request rejected
 	bigPayload := fmt.Sprintf(`{"filename":"huge.pdf","file_size":%d}`, s.cfg.MaxUploadBytes+1)
 	reqBig := httptest.NewRequest(http.MethodPost, "/api/s3/presign", strings.NewReader(bigPayload))
 	reqBig.Header.Set("Content-Type", "application/json")
@@ -214,7 +265,6 @@ func TestS3PresignAndKeyAuthorization(t *testing.T) {
 		t.Fatalf("expected 400 for oversized presign, got %d", recBig.Code)
 	}
 
-	// 2. Valid presign returns signed URL binding content-length and content-type
 	validPayload := `{"filename":"math_primary.pdf","file_size":4096}`
 	req := httptest.NewRequest(http.MethodPost, "/api/s3/presign", strings.NewReader(validPayload))
 	req.Header.Set("Content-Type", "application/json")
@@ -238,7 +288,6 @@ func TestS3PresignAndKeyAuthorization(t *testing.T) {
 		t.Errorf("expected presigned URL to bind content-length and content-type: %s", uploadURL)
 	}
 
-	// 3. Attempting to inspect a different S3 key with this session_id must be forbidden (403)
 	hijackPayload := fmt.Sprintf(`{"session_id":%q,"s3_key":"sessions/other/input/secret.pdf"}`, sid)
 	reqHijack := httptest.NewRequest(http.MethodPost, "/api/inspect", strings.NewReader(hijackPayload))
 	reqHijack.Header.Set("Content-Type", "application/json")
@@ -254,7 +303,6 @@ func TestEndToEndInspectSplitDownloadArabicFilename(t *testing.T) {
 	s := newTestServer(t, false, nil)
 	pdfBytes := buildMinimalPDFBytes(6)
 
-	// 1. Inspect via multipart upload with Arabic filename
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, err := mw.CreateFormFile("file", "كتاب_العلوم.pdf")
@@ -288,7 +336,6 @@ func TestEndToEndInspectSplitDownloadArabicFilename(t *testing.T) {
 		t.Errorf("BookInfo.Path must not be serialized in /api/inspect response")
 	}
 
-	// 2. Split at page 2, 4
 	splitPayload := fmt.Sprintf(`{"session_id":%q,"split_points":"2, 4"}`, sid)
 	reqSplit := httptest.NewRequest(http.MethodPost, "/api/split", strings.NewReader(splitPayload))
 	reqSplit.Header.Set("Content-Type", "application/json")
@@ -325,7 +372,6 @@ func TestEndToEndInspectSplitDownloadArabicFilename(t *testing.T) {
 		}
 	}
 
-	// 3. Download ZIP and verify RFC 6266 / mime.FormatMediaType Content-Disposition
 	reqZip := httptest.NewRequest(http.MethodGet, splitResp.ZipDownloadURL, nil)
 	recZip := httptest.NewRecorder()
 	s.Handler().ServeHTTP(recZip, reqZip)
@@ -337,7 +383,6 @@ func TestEndToEndInspectSplitDownloadArabicFilename(t *testing.T) {
 		t.Errorf("expected RFC-encoded attachment Content-Disposition, got %q", cd)
 	}
 
-	// 4. Clear session
 	reqClear := httptest.NewRequest(http.MethodDelete, "/api/clear?session_id="+sid, nil)
 	reqClear.Header.Set("X-CSRF-Token", s.CSRFToken())
 	recClear := httptest.NewRecorder()

@@ -55,12 +55,21 @@
             <svg class="progress-icon" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
             </svg>
-            <div>
+            <div class="progress-file-text">
               <div class="progress-file-name" id="progressFileName">filename.pdf</div>
               <div class="progress-status-text" id="progressStatusText">جارٍ الرفع إلى الخادم...</div>
             </div>
           </div>
-          <div class="progress-percent-badge" id="progressPercentBadge">0%</div>
+          <div class="progress-actions">
+            <div class="progress-percent-badge" id="progressPercentBadge">0%</div>
+            <button type="button" class="btn btn-secondary btn-danger-outline btn-sm" id="cancelUploadBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              <span data-i18n="btnCancelUpload">إلغاء الرفع</span>
+            </button>
+          </div>
         </div>
 
         <div class="progress-bar-track">
@@ -69,8 +78,17 @@
 
         <div class="progress-details-row">
           <span id="progressBytesText">0.0 MB / 0.0 MB</span>
+          <div class="progress-telemetry" aria-live="polite">
+            <span class="telemetry-item" id="progressSpeedText">--</span>
+            <span class="telemetry-sep" aria-hidden="true">&bull;</span>
+            <span class="telemetry-item" id="progressEtaText">--</span>
+          </div>
           <span id="progressStorageText"></span>
         </div>
+      </div>
+
+      <div class="upload-cancelled-notice" id="uploadCancelledNotice" role="status" aria-live="polite" style="display: none;">
+        <span id="uploadCancelledText" data-i18n="uploadCancelled">تم إلغاء رفع الملف.</span>
       </div>
 
       <div class="book-info" id="bookInfo">

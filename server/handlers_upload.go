@@ -162,7 +162,13 @@ func (s *Server) handleInspect(w http.ResponseWriter, r *http.Request) {
 		}
 		fileName = strings.TrimSpace(req.FileName)
 	} else {
-		// Enforce hard upper bound on multipart upload body and spill >32 MiB to temp files.
+		// Register multipart cleanup before parsing so aborted mid-stream uploads never leak temp files.
+		defer func() {
+			if r.MultipartForm != nil {
+				_ = r.MultipartForm.RemoveAll()
+			}
+		}()
+
 		r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxUploadBytes+(10<<20))
 		if err := r.ParseMultipartForm(multipartMemMax); err != nil {
 			var maxErr *http.MaxBytesError
@@ -173,11 +179,6 @@ func (s *Server) handleInspect(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "Failed to parse upload request", http.StatusBadRequest)
 			return
 		}
-		defer func() {
-			if r.MultipartForm != nil {
-				_ = r.MultipartForm.RemoveAll()
-			}
-		}()
 
 		s3Key = strings.TrimSpace(r.FormValue("key"))
 		if s3Key == "" {
