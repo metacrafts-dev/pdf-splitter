@@ -89,6 +89,24 @@ func generateSessionID() (string, error) {
 	return generateRandomHex(16) // 32 lowercase hex chars
 }
 
+// resolveDefaultSessionsDir picks ./data/sessions relative to the deployed binary
+// (matching systemd ReadWritePaths=/opt/pdf-splitter/data), falling back to <cwd>/data/sessions
+// when running via `go run` or `go test` from a temporary build directory.
+func resolveDefaultSessionsDir() (string, error) {
+	if execPath, err := os.Executable(); err == nil {
+		execDir := filepath.Dir(execPath)
+		tmpRoot := filepath.Clean(os.TempDir())
+		if !strings.HasPrefix(filepath.Clean(execDir), tmpRoot) {
+			return filepath.Join(execDir, "data", "sessions"), nil
+		}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve working directory (set SESSIONS_DIR explicitly): %w", err)
+	}
+	return filepath.Join(cwd, "data", "sessions"), nil
+}
+
 // NewServer constructs an isolated Server instance with validated config and routes.
 func NewServer(cfg ServerConfig, store *storage.Client) (*Server, error) {
 	if cfg.Host == "" {
@@ -104,22 +122,22 @@ func NewServer(cfg ServerConfig, store *storage.Client) (*Server, error) {
 		if envSessions := strings.TrimSpace(os.Getenv("SESSIONS_DIR")); envSessions != "" {
 			cfg.SessionsDir = envSessions
 		} else {
-			cwd, err := os.Getwd()
+			defaultDir, err := resolveDefaultSessionsDir()
 			if err != nil {
-				return nil, fmt.Errorf("failed to resolve working directory: %w", err)
+				return nil, err
 			}
-			cfg.SessionsDir = filepath.Join(cwd, "dist", "data", "sessions")
+			cfg.SessionsDir = defaultDir
 		}
 	}
 
 	absSessions, err := filepath.Abs(cfg.SessionsDir)
 	if err != nil {
-		return nil, fmt.Errorf("invalid sessions directory %s: %w", cfg.SessionsDir, err)
+		return nil, fmt.Errorf("invalid SESSIONS_DIR %q: %w", cfg.SessionsDir, err)
 	}
 	cfg.SessionsDir = absSessions
 
 	if err := os.MkdirAll(cfg.SessionsDir, 0750); err != nil {
-		return nil, fmt.Errorf("failed to create sessions directory %s: %w", cfg.SessionsDir, err)
+		return nil, fmt.Errorf("failed to create sessions directory %q (set SESSIONS_DIR to a writable path): %w", cfg.SessionsDir, err)
 	}
 
 	csrfToken, err := generateRandomHex(32)
@@ -161,9 +179,9 @@ func (s *Server) CSRFToken() string {
 	return s.csrfToken
 }
 
-// Handler returns the root HTTP handler with security headers applied.
+// Handler returns the root HTTP handler with panic recovery and security headers applied.
 func (s *Server) Handler() http.Handler {
-	return securityHeadersMiddleware(s.mux)
+	return recoveryMiddleware(securityHeadersMiddleware(s.mux))
 }
 
 func (s *Server) s3Configured() bool {
@@ -302,7 +320,6 @@ func (s *Server) runS3PurgeLoop(ctx context.Context) {
 		}
 	}
 
-	// Startup purge after brief settle
 	select {
 	case <-ctx.Done():
 		return
@@ -349,7 +366,6 @@ func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	// Never expose raw index.html template containing the CSRF placeholder.
 	cleanPath := strings.TrimPrefix(r.URL.Path, "/")
 	if cleanPath == "assets/index.html" || cleanPath == "assets" || cleanPath == "assets/" {
 		http.NotFound(w, r)

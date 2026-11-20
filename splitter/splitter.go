@@ -21,6 +21,20 @@ import (
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
+func init() {
+	// Defense-in-depth: disable pdfcpu's on-disk config directory globally so no internal
+	// fallback path ever attempts to write under $HOME/.config on read-only/sandboxed systems.
+	api.DisableConfigDir()
+}
+
+// newPDFCPUConfig returns an isolated, stateless, offline pdfcpu configuration that never
+// touches the user's config directory (safe under systemd ProtectSystem=strict + ProtectHome=true).
+func newPDFCPUConfig() *model.Configuration {
+	conf := model.NewStatelessConfiguration()
+	conf.Offline = true
+	return conf
+}
+
 // MaxSplitPoints bounds the number of split boundaries in a single request
 // to protect against algorithmic CPU/disk exhaustion attacks.
 const MaxSplitPoints = 200
@@ -68,6 +82,7 @@ func ValidatePDFHeader(filePath string) error {
 }
 
 // InspectPDF examines a local PDF file and returns its metadata including total page count.
+// It uses a stateless pdfcpu configuration so it never writes to $HOME/.config or XDG_CONFIG_HOME.
 func InspectPDF(ctx context.Context, filePath string) (*BookInfo, error) {
 	fi, err := os.Stat(filePath)
 	if err != nil {
@@ -80,7 +95,13 @@ func InspectPDF(ctx context.Context, filePath string) (*BookInfo, error) {
 		return nil, err
 	}
 
-	pages, err := api.PageCountFile(ctx, filePath)
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open PDF file: %w", err)
+	}
+	defer f.Close()
+
+	pages, err := api.PageCount(ctx, f, newPDFCPUConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to read PDF page count: %w", err)
 	}
@@ -174,7 +195,8 @@ type SplitOptions struct {
 }
 
 // SplitBook performs the physical extraction of page ranges from inputPath into outputDir.
-// It uses pdfcpu's single-pass SplitByPageNr so large PDFs are parsed only once instead of N times.
+// It uses pdfcpu's single-pass SplitByPageNr with a stateless configuration so large PDFs
+// are parsed only once and no config files are written to disk.
 func SplitBook(ctx context.Context, opts SplitOptions, progressFn func(part SplitPart, current, total int)) ([]SplitPart, error) {
 	info, err := InspectPDF(ctx, opts.InputPath)
 	if err != nil {
@@ -232,7 +254,7 @@ func SplitBook(ctx context.Context, opts SplitOptions, progressFn func(part Spli
 	}
 	defer inFile.Close()
 
-	conf := model.NewDefaultConfiguration()
+	conf := newPDFCPUConfig()
 	if err := api.SplitByPageNr(ctx, inFile, tmpDir, "seg.pdf", pageNrs, conf); err != nil {
 		return nil, fmt.Errorf("failed to split PDF: %w", err)
 	}

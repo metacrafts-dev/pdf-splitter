@@ -1,6 +1,6 @@
 # PDF Splitter (Go) — Web UI, VPS Server & CLI
 
-A compiled, standalone PDF splitter built in pure Go (`CGO_ENABLED=0`) with zero external runtime dependencies. It runs as an **offline CLI tool**, a **local desktop app**, or a **hardened VPS web service** with Store-mode ZIP packaging, S3-compatible object storage, and automatic local + S3 TTL cleanup.
+A compiled, standalone PDF splitter built in pure Go (`CGO_ENABLED=0`) with zero external runtime dependencies. It runs as an **offline CLI tool**, a **local desktop app**, or a **hardened VPS web service** behind a Cloudflare Tunnel (or optional Nginx) with Store-mode ZIP packaging, S3-compatible object storage, and automatic local + S3 TTL cleanup.
 
 ---
 
@@ -8,11 +8,12 @@ A compiled, standalone PDF splitter built in pure Go (`CGO_ENABLED=0`) with zero
 
 ### 1. Bilingual Web UI (Arabic Default with RTL & English)
 - Starts in Arabic (`العربية`) with full RTL layout and one-click switching to English.
-- Real-time upload progress bar with **live percentage, transferred MB, smoothed upload speed (B/s, KB/s, MB/s), estimated time remaining (ETA), and mid-upload Cancel button** (aborts in-flight XHR/fetch requests and cleans up pending S3 sessions).
+- Real-time upload progress bar with **live percentage, transferred MB, smoothed upload speed (B/s, KB/s, MB/s), estimated time remaining (ETA), client-side file-size pre-check, and mid-upload Cancel button**.
 - Inclusive split-point preview showing exact page ranges and the remainder block.
 - Strict Content Security Policy (`script-src 'self'`), per-boot CSRF tokens, and zero inline scripts.
 
-### 2. Fast Single-Pass Splitting, Store-Mode ZIP & Auto-Purge
+### 2. Fast Single-Pass Splitting, Stateless `pdfcpu` & Store-Mode ZIP
+- **Stateless `pdfcpu` execution (`model.NewStatelessConfiguration` + `api.DisableConfigDir`)**: never writes to `$HOME/.config` or `XDG_CONFIG_HOME`, working reliably under read-only sandboxes (`ProtectSystem=strict`, `ProtectHome=true`) without environment workarounds.
 - **Single-pass `pdfcpu.SplitByPageNr`**: parses the source PDF once rather than once per output part.
 - **Uncompressed (`zip.Store`) atomic ZIP archives**: avoids redundant Deflate CPU burn on already-compressed PDFs and writes via temp-file + atomic rename.
 - **Automatic Retention (default `15m`)**: background cleaner purges expired session directories, evicts in-memory session metadata, and runs periodic paginated S3 cleanup.
@@ -22,10 +23,11 @@ A compiled, standalone PDF splitter built in pure Go (`CGO_ENABLED=0`) with zero
 - Supports AWS S3, Cloudflare R2, MinIO, Wasabi, and DigitalOcean Spaces.
 - Server-minted session keys prevent unauthorized S3 key access.
 
-### 4. Security Hardening
+### 4. Security & Reliability Hardening
+- Panic recovery middleware logs stack traces and returns structured JSON `500` responses instead of dropping connections (preventing opaque reverse-proxy `502` errors).
 - Strict 32-char lowercase hex session ID validation and path containment across all endpoints.
 - Desktop-only routes (`/api/events`, `/api/open-folder`, `/api/shutdown`, `/api/heartbeat`) are disabled in VPS (`-server`) mode.
-- Hard `http.MaxBytesReader` upload limits (`MAX_UPLOAD_MB`), `32 MiB` multipart RAM cap, `%PDF-` header verification, concurrency semaphore, per-IP rate limiting, and `MaxSplitPoints` cap (`200`).
+- Hard `http.MaxBytesReader` upload limits (`MAX_UPLOAD_MB`), `32 MiB` multipart RAM cap, `%PDF-` header verification, concurrency semaphore, per-IP rate limiting (with `CF-Connecting-IP` support behind loopback proxies), and `MaxSplitPoints` cap (`200`).
 
 ---
 
@@ -62,11 +64,12 @@ Double-click `pdf-splitter.exe` or run without arguments:
 ./pdf-splitter "chemistry.pdf" 10 20 40 -zip
 ```
 
-### Mode C: Production VPS Deployment
+### Mode C: Production VPS Deployment (Cloudflare Tunnel or Optional Nginx)
 Deployment assets live in `deploy/`:
 - [`deploy/deploy.sh`](deploy/deploy.sh): Idempotent Linux installer (Ubuntu/Debian/RHEL/Rocky/Alma).
-- [`deploy/pdf-splitter.service`](deploy/pdf-splitter.service): Sandboxed systemd unit (`ProtectSystem=strict`, `NoNewPrivileges=true`, `MemoryDenyWriteExecute=true`).
-- [`deploy/nginx.conf`](deploy/nginx.conf): Reverse proxy with streaming uploads, rate/connection limits, and TLS notes.
+- [`deploy/pdf-splitter.service`](deploy/pdf-splitter.service): Sandboxed systemd unit (`ProtectSystem=strict`, `NoNewPrivileges=true`, `MemoryDenyWriteExecute=true`, `[Unit]` restart rate limiting).
+- [`deploy/publish-cloudflare.sh`](deploy/publish-cloudflare.sh): Dedicated Cloudflare Tunnel setup (recommended when exposing `http://127.0.0.1:8080` directly without Nginx).
+- [`deploy/nginx.conf`](deploy/nginx.conf): Optional Nginx reverse proxy template (only needed if serving directly via Nginx instead of Cloudflare Tunnel).
 - [`.env.example`](.env.example): Configuration template.
 
 ```bash
@@ -74,7 +77,9 @@ Deployment assets live in `deploy/`:
 sudo bash deploy/deploy.sh
 ```
 
-> **Cloudflare Tunnel Note:** Cloudflare Free/Pro plans enforce a 100 MB HTTP request body limit. If exposing via `deploy/publish-cloudflare.sh` and users upload PDFs > 100 MB, configure S3/R2 credentials in `/opt/pdf-splitter/.env` so uploads bypass Cloudflare and go directly to S3.
+> **Cloudflare Tunnel Upload Limit (Important):** Cloudflare Free/Pro plans enforce a **100 MB** HTTP request body limit at the edge. When serving behind a Cloudflare Tunnel **without** S3/R2 configured, keep `MAX_UPLOAD_MB=100` in `/opt/pdf-splitter/.env` so the browser rejects oversized PDFs client-side with a friendly message instead of failing mid-upload at Cloudflare's edge with HTTP 413. To support PDFs up to `500 MB`, configure S3/R2 in `.env` so browser uploads bypass Cloudflare via presigned URLs.
+
+> **Upgrading from an older `pdf-plitter` deployment:** `deploy/deploy.sh` automatically stops and disables any legacy `pdf-plitter.service` unit before installing `/opt/pdf-splitter` and `pdf-splitter.service`. Copy your existing `/opt/pdf-plitter/.env` to `/opt/pdf-splitter/.env` (updating `SESSIONS_DIR=/opt/pdf-splitter/data/sessions`) if needed.
 
 ---
 
@@ -83,10 +88,10 @@ sudo bash deploy/deploy.sh
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `PORT` | int | `8080` | TCP port to listen on |
-| `HOST` | string | `127.0.0.1` | Host IP to bind (`127.0.0.1` behind Nginx/cloudflared) |
+| `HOST` | string | `127.0.0.1` | Host IP to bind (`127.0.0.1` behind Cloudflare Tunnel / Nginx) |
 | `RETENTION` | duration | `15m` | Auto-purge TTL for local and S3 sessions |
-| `MAX_UPLOAD_MB` | int | `500` | Maximum allowed PDF upload size in MB |
-| `SESSIONS_DIR` | string | `./dist/data/sessions` | Session directory (`/opt/pdf-splitter/data/sessions` on VPS) |
+| `MAX_UPLOAD_MB` | int | `500` (`100` in `.env.example`) | Max PDF upload size in MB (use `100` for Cloudflare Tunnel without S3) |
+| `SESSIONS_DIR` | string | `<bin-dir>/data/sessions` | Session directory (`/opt/pdf-splitter/data/sessions` on VPS) |
 | `HEADLESS` | bool | `false` (`true` in `.env.example`) | Skip launching a desktop browser |
 | `S3_BUCKET` | string | `""` | S3 bucket name (empty = local storage mode) |
 | `S3_REGION` | string | `us-east-1` | S3 region (`auto` for Cloudflare R2) |

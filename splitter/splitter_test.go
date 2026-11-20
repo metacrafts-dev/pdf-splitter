@@ -143,6 +143,48 @@ func TestValidatePDFHeaderAndInspect(t *testing.T) {
 	}
 }
 
+// TestInspectAndSplitWithUnwritableConfigDir verifies that InspectPDF and SplitBook
+// never attempt to create a pdfcpu config directory under XDG_CONFIG_HOME / HOME
+// (regression test for systemd ProtectSystem=strict + ProtectHome=true panic).
+func TestInspectAndSplitWithUnwritableConfigDir(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Point config env vars to a regular file so mkdir under it fails with ENOTDIR
+	// on all platforms (even when tests run as root in containers/CI).
+	blocker := filepath.Join(tmpDir, "unwritable-blocker")
+	if err := os.WriteFile(blocker, []byte("block"), 0444); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", blocker)
+	t.Setenv("HOME", blocker)
+	t.Setenv("APPDATA", blocker)
+	t.Setenv("LOCALAPPDATA", blocker)
+
+	pdfPath := filepath.Join(tmpDir, "sandbox.pdf")
+	writeMinimalPDF(t, pdfPath, 5)
+
+	info, err := InspectPDF(context.Background(), pdfPath)
+	if err != nil {
+		t.Fatalf("InspectPDF failed with unwritable config dir: %v", err)
+	}
+	if info.TotalPages != 5 {
+		t.Fatalf("expected 5 pages, got %d", info.TotalPages)
+	}
+
+	outDir := filepath.Join(tmpDir, "out")
+	parts, err := SplitBook(context.Background(), SplitOptions{
+		InputPath:   pdfPath,
+		OutputDir:   outDir,
+		SplitPoints: []int{2},
+	}, nil)
+	if err != nil {
+		t.Fatalf("SplitBook failed with unwritable config dir: %v", err)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(parts))
+	}
+}
+
 func TestSplitBookAndCreateZipArchive(t *testing.T) {
 	tmpDir := t.TempDir()
 	pdfPath := filepath.Join(tmpDir, "textbook.pdf")

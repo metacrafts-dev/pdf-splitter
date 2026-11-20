@@ -371,7 +371,6 @@
         if (uploadTelemetry.smoothedBps === 0) {
           uploadTelemetry.smoothedBps = loaded / totalElapsedSec;
         } else {
-          // Exponential moving average smooths bursty XHR progress events
           uploadTelemetry.smoothedBps = 0.25 * instantBps + 0.75 * uploadTelemetry.smoothedBps;
         }
       } else if (uploadTelemetry.smoothedBps === 0 && loaded > 0) {
@@ -459,6 +458,7 @@
     const cfg = await getConfig();
     if (cfg && cfg.max_upload_mb && file.size > cfg.max_upload_mb * 1024 * 1024) {
       alert(t("fileTooLarge", cfg.max_upload_mb));
+      fileInput.value = "";
       return;
     }
 
@@ -641,7 +641,9 @@
           handleUploadError(uploadId, "Invalid server response: " + e.message);
         }
       } else {
-        let errMsg = `Server returned status ${xhr.status}`;
+        let errMsg = xhr.status === 413
+          ? t("uploadTooLargeEdge")
+          : `Server returned status ${xhr.status}`;
         try {
           const data = JSON.parse(xhr.responseText);
           if (data.error) errMsg = data.error;

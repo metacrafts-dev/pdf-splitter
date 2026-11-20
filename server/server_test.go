@@ -69,6 +69,46 @@ func newTestServer(t *testing.T, standalone bool, store *storage.Client) *Server
 	return s
 }
 
+func TestRecoveryMiddlewareReturnsJSON500(t *testing.T) {
+	handler := recoveryMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("boom: simulated handler crash")
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/inspect", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected HTTP 500 after panic, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("expected application/json Content-Type, got %q", ct)
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("expected valid JSON body, got %q: %v", rec.Body.String(), err)
+	}
+	if resp["error"] == "" {
+		t.Errorf("expected non-empty error message in JSON response")
+	}
+}
+
+func TestNewServerInvalidSessionsDirMentionsEnvVar(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewServer(ServerConfig{
+		SessionsDir: filepath.Join(blocker, "sessions"),
+	}, storage.NewClient(storage.Config{}))
+	if err == nil {
+		t.Fatalf("expected NewServer to fail when SessionsDir cannot be created")
+	}
+	if !strings.Contains(err.Error(), "SESSIONS_DIR") {
+		t.Errorf("expected error to mention SESSIONS_DIR, got: %v", err)
+	}
+}
+
 func TestHandleConfigDoesNotLeakS3Bucket(t *testing.T) {
 	store := storage.NewClient(storage.Config{
 		Bucket:          "secret-internal-bucket",
@@ -153,7 +193,7 @@ func TestInspectCancelledContextCleansUpSession(t *testing.T) {
 	mw.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Pre-cancelled request simulates client aborting mid-upload/inspect
+	cancel()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/inspect", &body).WithContext(ctx)
 	req.Header.Set("Content-Type", mw.FormDataContentType())

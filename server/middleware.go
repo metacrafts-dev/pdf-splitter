@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/subtle"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,56 @@ const (
 	controlBodyLimit int64 = 64 << 10 // 64 KiB max body for JSON/form control endpoints
 	multipartMemMax  int64 = 32 << 20 // 32 MiB max in-RAM buffer for multipart form parsing
 )
+
+// statusTrackingWriter records whether response headers/body have been written so
+// recoveryMiddleware can safely emit a 500 JSON error only when no response started yet.
+type statusTrackingWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *statusTrackingWriter) WriteHeader(code int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusTrackingWriter) Write(p []byte) (int, error) {
+	w.wroteHeader = true
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *statusTrackingWriter) Flush() {
+	if fl, ok := w.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
+}
+
+func (w *statusTrackingWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+// recoveryMiddleware catches any panic in downstream handlers, logs the stack trace,
+// and returns a structured 500 JSON error instead of dropping the TCP connection (which
+// causes reverse proxies and Cloudflare Tunnels to return an opaque 502).
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tw := &statusTrackingWriter{ResponseWriter: w}
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.Error("panic recovered in HTTP handler",
+					"panic", rec,
+					"method", r.Method,
+					"path", r.URL.Path,
+					"stack", string(debug.Stack()),
+				)
+				if !tw.wroteHeader {
+					jsonError(tw, "Internal server error", http.StatusInternalServerError)
+				}
+			}
+		}()
+		next.ServeHTTP(tw, r)
+	})
+}
 
 func securityHeadersMiddleware(next http.Handler) http.Handler {
 	const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: http:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
@@ -33,7 +85,6 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 // on state-changing HTTP requests.
 func (s *Server) requireCSRF(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Block cross-site browser requests immediately via Fetch Metadata.
 		if site := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))); site != "" {
 			if site != "same-origin" && site != "none" {
 				jsonError(w, "Cross-origin request rejected", http.StatusForbidden)
@@ -75,6 +126,9 @@ func extractClientIP(r *http.Request) string {
 	}
 	parsed := net.ParseIP(strings.Trim(host, "[]"))
 	if parsed != nil && parsed.IsLoopback() {
+		if cfIP := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cfIP != "" {
+			return cfIP
+		}
 		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
 			return realIP
 		}
@@ -134,7 +188,6 @@ func ensureContainedPath(baseDir, target string) (string, error) {
 // sanitizeFilename strips directory paths, control characters, quotes, and path-unsafe symbols
 // while preserving Unicode/Arabic letters for user-friendly download names.
 func sanitizeFilename(name string) string {
-	// Normalize both POSIX and Windows separators before taking Base.
 	name = strings.ReplaceAll(name, "\\", "/")
 	name = filepath.Base(strings.TrimSpace(name))
 
