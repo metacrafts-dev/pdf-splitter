@@ -119,20 +119,10 @@ go vet ./...
 ./build.sh
 ```
 
-## 🔏 Code Signing (removing "Unknown publisher")
+## 🔏 Code Signing Policy
 
-Windows builds are signed with an Authenticode certificate from
-[Certum's Open Source Code Signing](https://shop.certum.eu/open-source-code-signing-on-simplysign.html)
-program (€49/yr, cloud-based, for non-commercial open-source projects).
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
 
-Setup (one-time, on the build machine):
-1. Purchase the certificate and complete identity verification (ID document + utility bill + this repo's URL).
-2. Install [SimplySign Desktop](https://www.certum.eu/en/lp/simplysign/) and activate the certificate —
-   it appears as a virtual smart card.
-
-Sign and release:
-```powershell
-.\sign.ps1                    # signs dist\*.exe + timestamps
-cd dist; sha256sum pdf-splitter.exe pdf-splitter-linux-amd64 > SHA256SUMS.txt
-gh release create vX.Y.Z dist/* --generate-notes
-```
+- Committers, reviewers and approvers: [metacrafts-dev](https://github.com/metacrafts-dev) (project maintainer)
+- Privacy: this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. Split PDFs are processed locally on the server you run it on and auto-deleted after the retention period.
+- Release binaries are built from this repository and each signed release requires manual approval by the maintainer.
