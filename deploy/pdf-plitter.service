@@ -1,0 +1,66 @@
+[Unit]
+Description=Pdf Splitter Web Service - PDF Chapter & Range Splitter
+Documentation=file:///opt/pdf-plitter/README.md
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pdfsplitter
+Group=pdfsplitter
+WorkingDirectory=/opt/pdf-plitter
+
+# Environment configuration
+EnvironmentFile=-/opt/pdf-plitter/.env
+ExecStart=/opt/pdf-plitter/pdf-plitter-linux-amd64 -server
+
+# Process management and auto-restart
+Restart=always
+RestartSec=5s
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pdf-plitter
+
+# Resource limits (high file descriptors for concurrent uploads & PDF splits)
+LimitNOFILE=65535
+
+# ------------------------------------------------------------------------------
+# Security Hardening & Sandboxing
+# ------------------------------------------------------------------------------
+# Prevent privilege escalation
+NoNewPrivileges=true
+
+# Read-only filesystem except data directory
+ProtectSystem=strict
+ReadWritePaths=/opt/pdf-plitter/data
+ProtectHome=true
+
+# Isolated /tmp directory
+PrivateTmp=true
+
+# Prevent access to hardware devices
+PrivateDevices=true
+
+# Kernel protection
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Network sandboxing: restrict to standard internet protocols & UNIX sockets
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Namespace isolation
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+# Memory execution security
+MemoryDenyWriteExecute=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

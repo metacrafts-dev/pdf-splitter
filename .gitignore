@@ -1,0 +1,18 @@
+# Binaries and build artifacts
+*.exe
+*.exe~
+dist/pdf-plitter.exe
+dist/pdf-plitter-linux-amd64
+dist/pdf-plitter-darwin-*
+
+# Session data and temporary upload files
+dist/data/sessions/*
+!dist/data/sessions/.gitkeep
+data/
+
+# Environment files
+.env
+.env.local
+
+# Build output
+dist/
