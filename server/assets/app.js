@@ -207,6 +207,19 @@
         if (isStandaloneMode) {
           connectStandaloneEvents();
         }
+        if (cachedServerConfig.app_download_url) {
+          // Serve app downloads from the published release (e.g. GitHub Releases)
+          // instead of the server-hosted /api/download-app fallback.
+          document.querySelectorAll('a[href^="/api/download-app"]').forEach((a) => {
+            const asset = a.getAttribute("download");
+            if (asset) {
+              a.href =
+                cachedServerConfig.app_download_url.replace(/\/+$/, "") +
+                "/download/" +
+                encodeURIComponent(asset);
+            }
+          });
+        }
         return cachedServerConfig;
       }
     } catch (e) {

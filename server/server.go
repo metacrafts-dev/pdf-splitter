@@ -42,6 +42,11 @@ type ServerConfig struct {
 	SessionsDir    string        // Root directory for storing session files
 	Headless       bool          // If true, skip launching desktop browser
 	Standalone     bool          // If true, desktop standalone mode with SSE auto-shutdown
+
+	// ReleaseBaseURL is the public releases page binaries are published to
+	// (env: RELEASES_URL). When set, the frontend download buttons point at
+	// <base>/download/<asset> instead of the server-hosted /api/download-app.
+	ReleaseBaseURL string
 }
 
 type sessionRecord struct {
@@ -117,6 +122,9 @@ func NewServer(cfg ServerConfig, store *storage.Client) (*Server, error) {
 	}
 	if cfg.MaxUploadBytes <= 0 {
 		cfg.MaxUploadBytes = 500 << 20
+	}
+	if cfg.ReleaseBaseURL == "" {
+		cfg.ReleaseBaseURL = strings.TrimSpace(os.Getenv("RELEASES_URL"))
 	}
 	if cfg.SessionsDir == "" {
 		if envSessions := strings.TrimSpace(os.Getenv("SESSIONS_DIR")); envSessions != "" {

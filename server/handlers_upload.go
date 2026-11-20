@@ -29,6 +29,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"retention_minutes": int(s.cfg.Retention.Minutes()),
 		"max_upload_mb":     int(s.cfg.MaxUploadBytes / (1024 * 1024)),
 		"standalone":        s.cfg.Standalone,
+		"app_download_url":  s.cfg.ReleaseBaseURL,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
