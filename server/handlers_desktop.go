@@ -77,14 +77,32 @@ func (s *Server) runStandaloneWatchdog(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	started := time.Now()
 	var zeroSince time.Time
 	const disconnectGrace = 15 * time.Second
+	// ponytail: hard cap for "browser never connected at all" (launch failure,
+	// blocked EventSource); a smarter wait-for-first-client hook if it ever bites.
+	const noClientTimeout = 10 * time.Minute
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !s.everConnected.Load() && !s.heartbeatStarted.Load() {
+				if time.Since(started) >= noClientTimeout {
+					if s.shutdownTriggered.CompareAndSwap(false, true) {
+						slog.Warn("no browser client ever connected; shutting down standalone server")
+						_ = cleaner.PurgeAllSessions(s.cfg.SessionsDir)
+						if s.cancelServer != nil {
+							s.cancelServer()
+						}
+					}
+					return
+				}
+				continue
+			}
+
 			connected := s.activeSSE.Load() > 0
 			if !connected && s.heartbeatStarted.Load() {
 				last := time.Unix(s.lastHeartbeat.Load(), 0)
@@ -95,10 +113,6 @@ func (s *Server) runStandaloneWatchdog(ctx context.Context) {
 
 			if connected {
 				zeroSince = time.Time{}
-				continue
-			}
-
-			if !s.everConnected.Load() && !s.heartbeatStarted.Load() {
 				continue
 			}
 
